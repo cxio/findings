@@ -63,7 +63,7 @@ rand.Seed( rndBase )
 
 for {
     // 当前真实时间（毫秒）
-    now := time.Now().UnixNano() % 1000000
+    now := time.Now().UnixNano() / 1000000
 
     // 换算到时间段（1小时内不变）
     time := (now - stamp) % (3600*1000)
