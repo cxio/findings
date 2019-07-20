@@ -50,8 +50,8 @@ var IP          net.IP      // 服务器地址
 var dffMax      [32]byte    // 难度常数（00FFFFFFFF00000000...）
 
 // App配置项，约1个月变化频度
-var stamp       int64 = GetConfig("stamp")      // 起点时间戳，毫秒。
-var rndBase     int64 = GetConfig("rndBase")    // 随机数种子值。
+var start       int64 = GetConfig("start")      // 起点时间戳（毫秒），让时间段随机。
+var rndBase     int64 = GetConfig("rndBase")    // 随机数种子值，让端口取材随机。
 var difficulty  int64 = GetConfig("difficulty") // 难度系数（>1），约消耗普通单机1秒左右。
 
 var target      = dffMax / difficulty  // 目标难度
@@ -65,8 +65,9 @@ for {
     // 当前真实时间（毫秒）
     now := time.Now().UnixNano() / 1000000
 
-    // 换算到时间段（1小时内不变）
-    time := (now - stamp) % (3600*1000)
+    // 换算到时间段
+    // 1小时内不变，逐时递增
+    time := (now - start) % (3600*1000)
 
     // 端口值素材
     port = rand.Intn(rndMax)
