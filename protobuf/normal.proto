@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+// Normal 通用数据包
+// 用于封装其它proto编码数据，但同时提供类型标识。
+message Normal {
+    int32 name = 1; // 指令名
+    bytes data = 2; // 关联数据（待解码）
+}
+
+option go_package = "../config";

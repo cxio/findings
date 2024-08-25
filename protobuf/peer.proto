@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+// 节点信息类
+// 仅有可直连的 NAT:Pub/FullC 类型才会被传递。
+// 因此无需携带 NAT 类型。
+message Peer {
+    bytes ip = 1;   // 公网 IP
+    int32 port = 2; // 端口（TCP）
+}
+
+// 节点集定义
+message Peers {
+    repeated Peer peers = 1;
+}
+
+option go_package = "../node";

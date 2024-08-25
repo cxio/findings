@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+// 客户端UDP信息
+// 注：将在 TCP 链路上传输（而非UDP）。
+message ClientUDP {
+    bytes ip = 1;   // 公网IP
+    int32 port = 2; // 端口（UDP）
+    bytes sn32 = 3; // 序列号（32字节）
+}
+
+// 此消息从TCP链路传输，因此不归入stun包。
+option go_package = "../node";
