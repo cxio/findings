@@ -2,13 +2,18 @@ package ips
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"net"
 	"net/netip"
 	"sync"
+	"time"
 
 	"github.com/cxio/findings/config"
+	"github.com/cxio/findings/node"
+)
+
+const (
+	randomAmount   = 100             // 批量随机节点集大小
+	processTimeout = time.Minute * 1 // 主进程读取递送通道超时
 )
 
 // Finding 对外寻找节点尝试连接
@@ -21,109 +26,142 @@ import (
 // @size 基于起点ip的搜寻幅度（范围）
 // @chout 有效节点递送通道
 // @chdone 结束搜寻通知通道
-func Finding(ctx context.Context, port int, peers []config.Peer, size int, chout chan<- *config.Peer, done chan struct{}) {
+func Finding(ctx context.Context, port uint16, peers map[netip.Addr]*config.Peer, size int, chout chan<- *config.Peer, done <-chan struct{}) {
 	log.Println("Start searching findings peers...")
 
-	// 1. 首先对配置的节点尝试连接
-	for _, peer := range peers {
-		connectPeer(ctx, peer)
-	}
-	// 2. 对配置节点的周边尝试连接
+	defer func() {
+		log.Println("End peers search service.")
+	}()
+	defer close(chout)
 
-	// 3. 随机尝试，最下策，长时间……
+	// 1. 首先：
+	// 对用户配置的节点尝试连接
+	peersTesting(ctx, peers, 0, chout, done)
+
+	// 排除清单
+	exclude := excludeAppend(nil, peers)
+
+	// 2. 范围：
+	// 对配置节点的周边尝试探测
+	for _, peer := range peers {
+		select {
+		case <-ctx.Done():
+			log.Println("Break search on context EXIT.")
+			return
+		case <-done:
+			log.Println("Peers searching completed successfully.")
+			return
+		default:
+			list := peerList(
+				rangeAddrs(peer.IP, size),
+				port,
+				exclude)
+
+			// 阻塞：探测完一批后再来
+			peersTesting(ctx, list, 0, chout, done)
+
+			// 已探测添加
+			exclude = excludeAppend(exclude, list)
+		}
+	}
+
+	// 3. 随机：
+	// 无限时间！直到成功或外部主动结束
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("End search the servers")
-			break
+			log.Println("Break search on context EXIT.")
+			return
+		case <-done:
+			log.Println("Peers searching completed successfully.")
+			return
 		default:
+			ips := randomAddrs(randomAmount)
+
+			// 概略化处理
+			// 随机范围宽广，exclude 不再更新。
+			peersTesting(ctx, peerList(ips, port, exclude), 0, chout, done)
 		}
 	}
 }
 
-// 获取随机目标尝试连接
-func randomConnects(ctx context.Context, port int) error {
-	//
-}
+// 节点集测试
+// 批量并行测试，但阻塞直到全部结束才返回。
+// @ctx 全局上下文通知
+// @peers 目标节点集
+// @long 连接尝试超时时长
+// @chout 合格节点对外递送通道
+// @done 外部结束通知
+func peersTesting(ctx context.Context, peers map[netip.Addr]*config.Peer, long time.Duration, chout chan<- *config.Peer, done <-chan struct{}) {
+	var wg sync.WaitGroup
 
-// 从一个范围尝试连接
-// ip 是目标范围的一个参考点，但不含目标。
-// 范围大小由size指定，目标IP集在ip的前后size范围内。
-func rangeConnects(ctx context.Context, port int, ip netip.Addr, size int) error {
-	//
-}
-
-// 对明确目标尝试连接
-func connectPeer(ctx context.Context, peer config.Peer) bool {
-	//
-}
-
-//
-// 代码参考（临时）
-///////////////////////////////////////////////////////////////////////////////
-//
-
-// 启动对外连接
-// 端口可能为零，表示采用动态端口侦测模式（暂未实现）。
-// @port 连接目标节点的端口号
-// @num Findings节点最大连接数量
-func connectFindings(port int, num int) {
-	fmt.Println("Connecting findings peer...")
-
-	done := make(chan struct{}) // 用于接收连接关闭通知
-	wg := &sync.WaitGroup{}
-
-	// 创建初始连接
-	for i := 0; i < num; i++ {
+loop:
+	for _, peer := range peers {
 		wg.Add(1)
-		go createConnection(i, port, done, wg)
-	}
 
-	// 监听连接关闭通知，动态维持连接数
-	go func() {
-		for range done {
-			// 收到连接关闭通知后，创建新的连接
-			wg.Add(1)
-			go createConnection(num, port, done, wg)
-			num++
+		go func(p *config.Peer) {
+			defer wg.Done()
+
+			if err := node.Online(p.IP, p.Port, long); err != nil {
+				log.Printf("[%s] is unreachable on %s.\n", p, err)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-done:
+				log.Println("Peers searching completed successfully.")
+				return
+			case chout <- p:
+				log.Printf("[%s] is validly.", p)
+			// 退出机制
+			case <-time.After(processTimeout):
+				return
+			}
+		}(peer)
+
+		// 适当停顿，避免系统连网负荷激增
+		select {
+		case <-ctx.Done():
+			break loop
+		case <-done:
+			break loop
+		default:
+			time.Sleep(time.Millisecond * 200)
 		}
-	}()
-	close(done) // 关闭done channel，停止创建新连接
-	wg.Wait()   // 等待所有连接结束
-}
-
-// 向外连接客户端
-// 如果返回一个错误，通常表示目标节点不支持本协议的连接。
-// 注记：
-// 这是一种随机目标连接，连接错误是可预期的，因此不记入日志。
-func connectClient(ip string, port int) error {
-	addr := fmt.Sprintf("%s:%d", ip, port)
-
-	fmt.Println("Connect client...", addr)
-
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		fmt.Println("Error connect client:", err)
-		return err
 	}
-	defer conn.Close()
 
-	// ... 客户端逻辑实现
-
-	return nil
+	wg.Wait() // 阻塞直到全部结束
 }
 
-// 创建连接
-// 失败退出后，上级会自动创建新的连接尝试，以维持节点连接数。
-// 注记：
-// 注意检查上级是否主动关闭done，以跟随清理并退出。
-func createConnection(id, port int, done chan struct{}, wg *sync.WaitGroup) {
-	defer wg.Done()
-	defer func() {
-		done <- struct{}{} // 发送连接关闭通知
-	}()
+// 构造节点对象集。
+// 用多个IP地址，但端口为共同的一个。
+// @ips 地址IP清单
+// @port 共同端口
+// @exclude IP例外清单
+// @return 节点集
+func peerList(ips []netip.Addr, port uint16, exclude map[netip.Addr]bool) map[netip.Addr]*config.Peer {
+	list := make(map[netip.Addr]*config.Peer)
 
-	fmt.Printf("Connection %d started\n", id)
+	for _, ip := range ips {
+		if _, ok := exclude[ip]; ok {
+			continue
+		}
+		list[ip] = &config.Peer{IP: ip, Port: port}
+	}
+	return list
+}
 
-	fmt.Printf("Connection %d closed\n", id)
+// 排除清单成员补充
+// 如果清单存储目标为nil，会新建一个存储区返回。
+// @dst 清单存储
+// @src 来源清单
+// @return 存储的清单
+func excludeAppend(dst map[netip.Addr]bool, src map[netip.Addr]*config.Peer) map[netip.Addr]bool {
+	if dst == nil {
+		dst = make(map[netip.Addr]bool)
+	}
+	for _, peer := range src {
+		dst[peer.IP] = true
+	}
+	return dst
 }

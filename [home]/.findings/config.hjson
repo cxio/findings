@@ -2,11 +2,14 @@
 {
     server_port: 7788,      // 本地服务端口
     remote_port: 7788,      // 远端端口，通常为标准端口7788或443混入。用于服务器探测
+    udp_listen: 7080,       // 本地 NAT 类型探测监听端口
+    udp_living: 7181,       // 本地 NAT 生命期探测监听端口
     log_dir: "logs",        // 应用程序日志存放根目录
     findings: 10,           // 同时连接的本类节点数
     peers_help: 8,          // 上线帮助发送条目数。私有Findings针对自己的应用可设置较大的值
-    applications: 2000,     // 每种应用可同时连接的节点数量上限（通常为100的整数倍，不应低于2倍）
+    applications: 800,      // 每种应用可同时连接的节点数量上限（通常为100的整数倍，不应低于2倍）
     shortlist: 40,          // 本类节点候选名单长度
     buffer_size: 1024,      // 连接读写缓冲区大小
-    peers_range: 300        // 节点寻找的范围（基于起点）
+    peers_range: 200,       // 节点寻找的范围（基于起点的半径）
+    stun_peer_amount: 6     // 打洞协助连接节点数
 }

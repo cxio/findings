@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+// Proto 通用数据包
+// 用于封装其它proto编码数据，但同时提供类型标识。
+message Proto {
+    int32 name = 1; // 指令名
+    bytes data = 2; // 关联数据（待解码）
+}
+
+// 支持的服务类型
+message Kind {
+    string base = 1;    // 基础名称（depots|blockchain|app|findings）
+    string name = 2;    // 具体的服务名称（任意……）
+}
+
+// 服务类型名集
+// 服务器返回给应用端的信息。
+message ServKinds {
+    repeated Kind names = 1;
+}
+
+option go_package = "../base";

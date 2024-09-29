@@ -13,7 +13,7 @@ import (
 func GenerateSelfSigned25519() (tls.Certificate, error) {
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		log.Fatal("Failed to generate private key: ", err)
+		log.Fatalln("[Error] generate private key:", err)
 	}
 	return WithDNS(privateKey, "findings", "Blockchain::cxio.Findings")
 
@@ -44,7 +44,7 @@ func GenerateSelfSigned25519() (tls.Certificate, error) {
 		// 需先转换到DER格式
 		keyDER, err := x509.MarshalPKCS8PrivateKey(privateKey)
 		if err != nil {
-			log.Fatalf("Error convert private key to DER format: %v", err)
+			log.Fatalln("[Error] convert private key to DER format:", err)
 		}
 		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
 

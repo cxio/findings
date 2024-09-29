@@ -9,7 +9,7 @@ message Peer {
 }
 
 // 节点集定义
-message Peers {
+message PeerList {
     repeated Peer peers = 1;
 }
 
