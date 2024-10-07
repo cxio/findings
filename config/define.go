@@ -29,7 +29,7 @@ const (
 	UDPLiving      = 7181 // 本地 NAT 生命期探测监听端口
 	MaxFindings    = 10   // 组网节点连接数
 	PeersHelp      = 8    // 上线帮助发送条目数
-	MaxApps        = 800  // 每种应用默认的节点连接数上限
+	MaxApps        = 500  // 每种应用默认的节点连接数上限
 	ListFindings   = 40   // 本类节点候选名单长度
 	BufferSize     = 1024 // 连接读写缓冲区大小
 	PeerFindRange  = 200  // 节点寻找的范围（基于起点）
@@ -39,13 +39,13 @@ const (
 // 开发配置常量
 // 部分值关系到安全性，不提供外部可配置。
 const (
-	SomeFindings   = 10                // 本类端组网发送条目数
-	AppCleanLen    = 100               // 应用节点连接池单位清理长度（关联 MaxApps）
-	FinderPatrol   = time.Minute * 10  // 本类节点连接切换巡查间隔
-	BanExpired     = time.Hour * 4     // 恶意节点禁闭期限
-	ApplierPatrol  = time.Minute * 15  // 应用连接池巡查间隔（清除太老节点，节省内存）
-	ApplierExpired = time.Minute * 150 // 应用端在线最长时间（2.5h）
-	STUNTryMax     = 4                 // 打洞协助单次失败再尝试最大次数
+	SomeFindings    = 10                // 本类端组网发送条目数
+	FinderPatrol    = time.Minute * 10  // 本类节点连接切换巡查间隔
+	ShortlistPatrol = time.Minute * 6   // 后续池节点在线巡查间隔
+	BanExpired      = time.Hour * 4     // 恶意节点禁闭期限
+	ApplierPatrol   = time.Minute * 12  // 应用连接池巡查间隔（清除太老节点，节省内存）
+	ApplierExpired  = time.Minute * 150 // 应用端在线最长时间（2.5h）
+	STUNTryMax      = 4                 // 打洞协助单次失败再尝试最大次数
 )
 
 // 本系统（findings:one）

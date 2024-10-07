@@ -105,7 +105,7 @@ type Client struct {
 }
 
 const (
-	timeoutReadUDP = time.Second * 12 // 普通UDP读取超时
+	timeoutReadUDP = time.Second * 10 // 普通UDP读取超时
 	timeoutLiveNAT = time.Second * 7  // LiveNAT包读取超时
 )
 
@@ -246,17 +246,19 @@ func ListenUDP(ctx context.Context, port int, seed [32]byte, nch chan *Notice) <
 				case UDPSEND_LOCAL:
 					err = ListenSend(conn, ntc.Addr, ntc.SN)
 				case UDPSEND_NEWPORT:
-					err = NewPort(ntc.Addr, ntc.SN)
+					err = NewPortSend(ntc.Addr, ntc.SN)
 
 				// 应为外部服务器委托至此
 				case UDPSEND_NEWHOST:
-					err = NewHost(ntc.Addr, ntc.SN)
+					err = NewHostSend(ntc.Addr, ntc.SN)
 				}
 				ntc.Reply <- err == nil
 				close(ntc.Reply)
 
 			default:
-				//? 10s 读取超时
+				// 读取超时限制
+				conn.SetReadDeadline(time.Now().Add(timeoutReadUDP))
+
 				n, clientAddr, err := conn.ReadFromUDP(buf)
 				if err != nil {
 					log.Println("[Error] reading from UDP:", err)
@@ -366,19 +368,19 @@ func ListenSend(conn *net.UDPConn, raddr *net.UDPAddr, sn ClientSN) error {
 	return redunSendUDP(conn, raddr, sn[:], 3)
 }
 
-// NewPort 服务器用一个新端口发送UDP消息。
+// NewPortSend 服务器用一个新端口发送UDP消息。
 // 由协助服务器自己发送，测试对方是否为 RC NAT 类型。
 // 对方：
 // - 收到 => RC
 // - 未收到 => P-RC 或 Sym。
 // @raddr 目标客户端的UDP地址
 // @sn 客户序列号，首字节会设置标志，表示NewPort发送
-func NewPort(raddr *net.UDPAddr, sn ClientSN) error {
+func NewPortSend(raddr *net.UDPAddr, sn ClientSN) error {
 	sn[0] = (sn[0] & 0b11111_000) | bitNewPort
 	return dialSend(raddr, sn[:])
 }
 
-// NewHost 新服务器发送UDP消息。
+// NewHostSend 新服务器发送UDP消息。
 // 由收到 NewHost 请求的节点执行发送（新主机自然为一个新IP）。
 // 对方：
 // - 收到 & 1.N   => FullC 类型
@@ -387,7 +389,7 @@ func NewPort(raddr *net.UDPAddr, sn ClientSN) error {
 // - 未收到 & 1.N => P-RC | Sym 类型（注：也含RC，但RC已由3.判断出来）
 // @raddr 目标客户端的UDP地址
 // @sn 客户序列号，首字节会设置标志，表示NewHost发送
-func NewHost(raddr *net.UDPAddr, sn ClientSN) error {
+func NewHostSend(raddr *net.UDPAddr, sn ClientSN) error {
 	sn[0] = (sn[0] & 0b11111_000) | bitNewHost
 	return dialSend(raddr, sn[:])
 }

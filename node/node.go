@@ -3,11 +3,11 @@
 package node
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
 	"log"
-	"math/rand"
 	"net"
 	"net/netip"
 	"net/url"
@@ -65,8 +65,10 @@ var NatNames = []string{
 	stun.NAT_LEVEL_ERROR:  "Unknown",   // 5: UDP链路不可用，或探测错误默认值
 }
 
-// 默认超时时间
-const defaultTimeout = time.Second * 30
+const (
+	cleanNCount    = 10               // 并发清理并发量
+	defaultTimeout = time.Second * 30 // 默认超时时间
+)
 
 //
 // 通用节点
@@ -136,9 +138,11 @@ type Shortlist struct {
 
 // NewShortlist 创建一个新的候选池。
 func NewShortlist(size int) *Shortlist {
-	// 候选池无清理行为，因此清理函数为nil。
+	if size <= 0 {
+		return nil
+	}
 	return &Shortlist{
-		pool: *pool.NewPool[Node](size, nil),
+		pool: *pool.NewPool[Node](size),
 	}
 }
 
@@ -165,8 +169,8 @@ func (s *Shortlist) Remove(index int) *Node {
 // Removes 移除池中多个节点。
 // @indexes 位置下标序列
 // @return 被移除的节点清单
-func (s *Shortlist) Removes(indexes ...int) []*Node {
-	return pool.Removes(&s.pool, indexes...)
+func (s *Shortlist) Removes(i, size int) []*Node {
+	return pool.Removes(&s.pool, i, size)
 }
 
 // Take 提取一个随机成员。
@@ -179,10 +183,30 @@ func (s *Shortlist) Takes(count int) []*Node {
 	return pool.Takes(&s.pool, count)
 }
 
+// List 获取一个随机节点集。
+// @count 最大数量
+// @return 一个随机节点序列
+func (s *Shortlist) List(count int) []*Node {
+	return pool.List(&s.pool, count)
+}
+
 // Drop 提取全部成员。
 // 原池会被清空，但其它设置被保留。
 func (s *Shortlist) Drop() []*Node {
 	return pool.Drop(&s.pool)
+}
+
+// Clean 清理无效连接（对端下线）
+// 直接完成Finder的清理逻辑。
+// 用户通常运行一个服务，定时调用该方法。
+func (s *Shortlist) Clean(ctx context.Context) {
+	start := time.Now()
+	out := pool.Clean(ctx, &s.pool, offline)
+
+	for its := range out {
+		log.Printf("[%s] was cleaned from Shortlist\n", its)
+	}
+	log.Printf("Cleaning the shortlist took %s\n", time.Since(start))
 }
 
 // IsFulled 池是否已满员。
@@ -201,17 +225,15 @@ func (s *Shortlist) Size() int {
 
 // Finder Findings组网节点
 type Finder struct {
-	*Node                     // 对端节点
-	*LinkPeer                 // 打洞关联节点
-	Conn      *websocket.Conn // 当前 Websocket 连接
+	*Node                 // 对端节点
+	Conn  *websocket.Conn // 当前 Websocket 连接
 }
 
 // NewFinder 新建一个Finder
-func NewFinder(node *Node, peer *LinkPeer, conn *websocket.Conn) *Finder {
+func NewFinder(node *Node, conn *websocket.Conn) *Finder {
 	return &Finder{
-		Node:     node,
-		LinkPeer: peer,
-		Conn:     conn,
+		Node: node,
+		Conn: conn,
 	}
 }
 
@@ -260,16 +282,9 @@ func (f *Finder) NewHost(raddr *net.UDPAddr, sn ClientSN) <-chan error {
 	return ch
 }
 
-// Exit 节点退出。
-func (f *Finder) Exit() {
+// Quit 节点退出。
+func (f *Finder) Quit() {
 	f.Conn.Close()
-}
-
-// String 节点的字符串表示。
-// 显示为节点当前TCP连接的相关信息。
-// 格式：IP:Port(Level)
-func (f *Finder) String() string {
-	return fmt.Sprintf("%s(%d)", f.Node.String(), f.Level)
 }
 
 // Finders 组网池。
@@ -280,10 +295,11 @@ type Finders struct {
 
 // NewFinders 创建一个连接池
 func NewFinders(size int) *Finders {
+	if size <= 0 {
+		return nil
+	}
 	return &Finders{
-		pool: *pool.NewPool(size, func(f *Finder) bool {
-			return offline(f.Node)
-		}),
+		pool: *pool.NewPool[Finder](size),
 	}
 }
 
@@ -297,14 +313,22 @@ func (f *Finders) Remove(index int) *Finder {
 	return pool.Remove(&f.pool, index)
 }
 
+// Dispose 清除目标连接节点。
+// @conn 目标连接
+// @return 被移除的目标节点
+func (f *Finders) Dispose(conn *websocket.Conn) *Finder {
+	test := func(node *Finder) bool {
+		return conn == node.Conn
+	}
+	return pool.Dispose(&f.pool, test)
+}
+
 // Removes 移除多个成员。
-func (f *Finders) Removes(indexes ...int) []*Finder {
-	return pool.Removes(&f.pool, indexes...)
+func (f *Finders) Removes(i, size int) []*Finder {
+	return pool.Removes(&f.pool, i, size)
 }
 
 // Get 引用一个随机成员。
-// 主要用于 NewHost 操作的目标获取。
-// 可以比较 Finder.Conn 值来判断是否为自身。
 func (f *Finders) Get() *Finder {
 	// 无删除需求，忽略下标
 	_, its := pool.Get(&f.pool)
@@ -314,20 +338,6 @@ func (f *Finders) Get() *Finder {
 // Take 提取一个随机成员。
 func (f *Finders) Take() *Finder {
 	return pool.Take(&f.pool)
-}
-
-// Clean 清理无效连接（对端下线）
-// 直接完成Finder的清理逻辑。
-// 用户通常运行一个服务，定时调用该方法。
-func (f *Finders) Clean() {
-	out := pool.Clean(&f.pool, -1)
-	start := time.Now()
-
-	for its := range out {
-		log.Printf("[%s] was cleaned from Finders\n", its)
-		its.Exit()
-	}
-	log.Printf("Cleaning the finders took %s\n", time.Since(start))
 }
 
 // Size 返回节点池大小。
@@ -373,276 +383,115 @@ func (a *Applier) String() string {
 	return fmt.Sprintf("%s(%d)", a.Node.String(), a.Level)
 }
 
-// Appliers 应用端服务员集（缓存池）。
-// 内部存储区是一个预申请的切片空间，向尾部添加新成员。
-// 当池满时，添加新成员会触发清理操作。
-// 清理操作只是把尾部的一段新成员移动到头部，同时记忆位置游标（清理起点）。
-// 清理效果：
-// 维持池的大小符合要求，旧成员的过期时间是相对的，取决于新加入成员的速度。
-// 注意：
-// 这是一种概略算法，对端中断连接后的快速移除会破坏成员的时序性。
-//
-// ！这不是一个好的策略
-// 会导致不活跃的池，其节点的有效性下降：不活跃，服务质量就差，就更不活跃……
-type Appliers struct {
-	queue    []*Applier // 存储区
-	maxSize  int        // 池大小限制
-	cleanLen int        // 清理长度
-	cursor   int        // 清理点位置游标
-	mu       sync.Mutex
+// Quit 节点退出。
+func (a *Applier) Quit() {
+	a.Conn.Close()
 }
 
-// NewAppliers 创建集合（缓存池）。
-// 池大小size需为一个大于零的数，且不能小于清理长度cleanlen
-// 通常，size 为 cleanlen 的整数倍且2倍以上。
-// 清理长度cleanlen不可为零。
+// Appliers 应用端服务员缓存池。
+type Appliers struct {
+	pool pool.Pool[Applier]
+}
+
+// Applier 到期测试
+// 下线或者存活时间过期。下线测试可能会需要较长时间。
+// @long 存活期时长
+func expireApplier(a *Applier, long time.Duration) bool {
+	return time.Now().Before(a.Start.Add(long)) || offline(a.Node)
+}
+
+// NewAppliers 创建集合。
+// size 可以为零或负数，这样就不会创建实例。
+// 比如当前服务器不提供对外应用端服务（NAT 内网 Finder）。
 // @size 池大小限制
 // @cleanlen 清理的片段长度。
 // @net 支持的网络类型（tcp|udp）
-func NewAppliers(size, cleanlen int) *Appliers {
-	if size < 1 {
-		log.Fatalln("[Fatal] client pool size is too small.")
-	}
-	if cleanlen <= 0 {
-		log.Fatalln("[Fatal] clean length is invalid.")
+func NewAppliers(size int) *Appliers {
+	if size <= 0 {
+		return nil
 	}
 	return &Appliers{
-		queue:    make([]*Applier, 0, size),
-		maxSize:  size,
-		cleanLen: cleanlen,
+		pool: *pool.NewPool[Applier](size),
 	}
 }
 
 // Add 添加成员到缓存池。
-// 如果池已满会自动触发强制清理操作，因此总会添加成功。
-// @node 目标应用端
-func (a *Appliers) Add(node *Applier) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	if len(a.queue) >= a.maxSize {
-		a.cursor = a.forceClean(a.cursor, a.cleanLen)
-	}
-	log.Printf("Add {%s} to the applier pool.\n", node.String())
-
-	a.queue = append(a.queue, node)
+func (a *Appliers) Add(node *Applier) error {
+	return pool.Add(&a.pool, node)
 }
 
 // AddTCP 添加对端支持TCP的服务员。
-// 与Add方法相同，但增加了对所支持协议的检查。
-// 当在向仅包含TCP支持的节点的池中添加成员时使用该方法。
+// 与Add方法相同，但增加了必要的检查。是一个便捷方法。
+// 使用：
+// 在向仅包含TCP支持的节点的池中添加成员时使用本方法。
 // 约束：
 // 对端的NAT类型必须是 Pub/FullC，否则添加失败。
 // @node 目标应用端
 func (a *Appliers) AddTCP(node *Applier) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	if node.Network != "tcp" {
 		return ErrApplNoTCP
 	}
 	if node.Level != NAT_LEVEL_NULL {
 		return ErrApplNotPub
 	}
-	if len(a.queue) >= a.maxSize {
-		a.cursor = a.forceClean(a.cursor, a.cleanLen)
-	}
-	log.Printf("Add {%s} to the applier pool.\n", node.String())
-
-	a.queue = append(a.queue, node)
-	return nil
+	return pool.Add(&a.pool, node)
 }
 
 // Remove 移除目标成员
-func (c *Appliers) Remove(node *Applier) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.queue = c.deleteOne(node)
+func (a *Appliers) Remove(index int) *Applier {
+	return pool.Remove(&a.pool, index)
 }
 
-// List 获取一个成员清单
-// 如果指定的长度为零或负值或超过了池内节点数，返回全部节点。
-// 返回的集合成员为随机抽取，如果返回全集，则已随机化排列。
-// @size 获取的清单长度。
-// @return 一个随机提取的成员表。
-func (c *Appliers) List(size int) []*Applier {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if len(c.queue) == 0 {
-		return []*Applier{}
-	}
-	if size > len(c.queue) || size <= 0 {
-		size = len(c.queue)
-	}
-	list := make([]*Applier, 0, size)
-
-	for _, ix := range randomIndexs(size, len(c.queue)) {
-		list = append(list, c.queue[ix])
-	}
-	return list
+// Removes 移除多个成员。
+func (a *Appliers) Removes(i, size int) []*Applier {
+	return pool.Removes(&a.pool, i, size)
 }
 
-// Get 获取一个成员引用（随机）
-func (c *Appliers) Get() *Applier {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+// Get 引用一个随机成员。
+// @return1 目标成员的位置下标
+// @return2 目标成员
+func (a *Appliers) Get() (int, *Applier) {
+	return pool.Get(&a.pool)
+}
 
-	if len(c.queue) == 0 {
-		return nil
-	}
-	return c.queue[rand.Intn(len(c.queue))]
+// List 获取指定数量的随机成员。
+// 如果指定的长度为负值或超过了池内节点数，返回全部节点。
+// 返回集成员已随机化。
+// @count 获取的成员数量
+// @return 一个随机成员序列
+func (a *Appliers) List(count int) []*Applier {
+	return pool.List(&a.pool, count)
 }
 
 // Clean 清理缓存池
-// 移除入池时间太久的成员。
-// 从游标位置开始检查，记录连续的片段并移除。
-// 注意：
-// 如果对端断开连接，外部可能将之从池中移除。因此会打断节点排列的时序性。
-// 所以这只是一种概略话的清理。
+// 移除入池时间太久或已经下线的成员。
+// 应用池较大，因此采用并发的清理方式（pool.CleanN）。
 // @long 指定过期时间长度
-func (c *Appliers) Clean(long time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if len(c.queue) == 0 {
-		return
+func (a *Appliers) Clean(ctx context.Context, long time.Duration) {
+	test := func(a *Applier) bool {
+		return expireApplier(a, long)
 	}
+	start := time.Now()
 	cnt := 0
-	for i := c.cursor; i < len(c.queue); i++ {
-		node := c.queue[i]
-		// 连续段检查
-		// 只要碰到较新的加入时间即终止。
-		if time.Now().Before(node.Start.Add(long)) {
-			break
+	out := pool.CleanN(ctx, &a.pool, cleanNCount, test)
+
+	for list := range out {
+		for _, its := range list {
+			its.Quit()
 		}
-		cnt++
+		cnt += len(list)
 	}
-	if cnt == 0 {
-		return
-	}
-	c.cursor = c.liveClean(c.cursor, cnt)
+	log.Printf("Cleaning %d appliers took %s\n", cnt, time.Since(start))
 }
 
 // Size 返回缓存池大小
-func (c *Appliers) Size() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	return len(c.queue)
+func (a *Appliers) Size() int {
+	return pool.Size(&a.pool)
 }
 
 // IsFulled 缓存池是否满员
-func (c *Appliers) IsFulled() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	return len(c.queue) >= c.maxSize
-}
-
-// Reset 重置缓存池
-// 保持原始存储区，不申请新的内存空间。
-func (c *Appliers) Reset() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.queue = c.queue[:0]
-	c.cursor = 0
-}
-
-// 强制清理缓存池。
-// 取末尾的新成员移到前段覆盖旧成员，收缩切片腾出空间备用。
-// 应当在池满时才调用。
-// 注意：
-// 这里没有绝对的过期时间，只是移除相对较旧的成员。
-// @i 清理的起始下标位置
-// @clen 待清理的片区长度
-// @return 新的下标位置
-func (c *Appliers) forceClean(i, clen int) int {
-	end := i + clen
-	z := len(c.queue) - clen
-
-	// 池大小已小于清理长度
-	if z <= 0 {
-		return i
-	}
-	// 已超出尾部，末尾新鲜节点移到头部。
-	if end > len(c.queue) {
-		z = i
-		end = len(c.queue) - i
-		i = 0
-	}
-	// 末尾新值前移，后段可能有交叠覆盖
-	copy(c.queue[i:end], c.queue[z:])
-
-	// 如果末尾交叠
-	// 覆盖交叠的应为更新鲜的节点，保留。
-	if end > z {
-		z = end
-	}
-	c.queue = c.queue[:z]
-
-	return end % len(c.queue)
-}
-
-// 活跃性清理。
-// 行为类似forceClean，但优先考虑清理段移除（末尾交叠区处理）。
-// 清理段长度由时间检查而来，故必然在池内。
-// @i 清理的起始下标
-// @clen 待清理的片区长度
-func (c *Appliers) liveClean(i, clen int) int {
-	end := i + clen
-	z := len(c.queue) - clen
-	lap := 0
-
-	// 如果末尾交叠
-	if end > z {
-		lap = end - z
-		z, end = end, z // 交叠区等待移除，暂不管
-	}
-	// 末尾新值前移
-	copy(c.queue[i:end], c.queue[z:])
-
-	// 保证交叠部分移除
-	c.queue = c.queue[:z-lap]
-
-	return end % len(c.queue)
-}
-
-// 移除一个成员。
-// 采用快速移除法：将末尾的新成员移动到被删除成员的位置。
-// 有一个优化处理以避免末尾新成员移动到最前段，从而被很快清理掉（forceClean）。
-// 实现：
-// 如果目标所在位置太靠前（1/3），会先在中段随机选取一个成员作为中间换位。
-// 即取随机位置的成员前移覆盖，然后末尾新节点移动到原随机位置。
-// 返回：移除成员后的总成员集
-func (c *Appliers) deleteOne(node *Applier) []*Applier {
-	i := 0
-	var tmp *Applier
-	list := c.queue
-
-	for i, tmp = range list {
-		if tmp == node {
-			break
-		}
-	}
-	if tmp == nil {
-		return list
-	}
-	z := len(list) - 1
-
-	// 太靠前
-	if i < z/3 {
-		// 增加中间换手，随机位
-		n := rand.Intn(z/3) + z/3
-
-		list[i] = list[n]
-		i = n
-	}
-	list[i] = list[z]
-
-	return list[:z]
+func (a *Appliers) IsFulled() bool {
+	return pool.IsFulled(&a.pool)
 }
 
 // 按NAT分类的应用服务员池组
@@ -652,11 +501,11 @@ func (c *Appliers) deleteOne(node *Applier) []*Applier {
 // [3] - Sym
 type appliers4 [4]*Appliers
 
-func newAppliers4(size, cleanlen int) appliers4 {
+func newAppliers4(size int) appliers4 {
 	var app4 [4]*Appliers
 
 	for i := 0; i < 4; i++ {
-		app4[i] = NewAppliers(size, cleanlen)
+		app4[i] = NewAppliers(size)
 	}
 	return app4
 }
@@ -691,13 +540,13 @@ func NewAppliersPool() AppliersPool {
 // 每一种应用初始使用时都需要调用该初始化函数。
 // 注意：
 // 不支持并发安全，因此用户需要在程序最开始时初始化自己支持的所有应用。
-// @kind 应用类型名
+// @kind 应用类型名（kind:name）
 // @size 池大小限制
 // @cleanlen 清理的片段长度
-func (cp AppliersPool) Init(kind string, size, cleanlen int) {
+func (cp AppliersPool) Init(kind string, size int) {
 	cp[kind] = appliersTeam{
-		PoolsUDP: newAppliers4(size, cleanlen),
-		PoolTCP:  NewAppliers(size, cleanlen),
+		PoolsUDP: newAppliers4(size),
+		PoolTCP:  NewAppliers(size),
 	}
 }
 
@@ -707,7 +556,7 @@ func (cp AppliersPool) Init(kind string, size, cleanlen int) {
 // - NAT_LEVEL_RC
 // - NAT_LEVEL_PRC
 // - NAT_LEVEL_SYM
-// 如果网络是TCP，则level仅支持 Pub/FullC 类型值（0）。
+// 如果网络是TCP，则level必须是 Pub/FullC 类型（0）。
 //
 // @kind 应用类型名
 // @net 网络协议类型（tcp|udp）
@@ -752,18 +601,18 @@ func (cp AppliersPool) Supported(kind string) bool {
 }
 
 // Clean 清理目标类型的应用池组
-// @kinds 目标应用名称集
+// @kinds 应用名称集（kind:name）
 // @long 有效期时长
-func (cp AppliersPool) Clean(kinds []string, long time.Duration) {
+func (cp AppliersPool) Clean(ctx context.Context, kinds []string, long time.Duration) {
 	for _, kind := range kinds {
 		cs2p, ok := cp[kind]
 		if !ok {
 			continue
 		}
 		for _, cs := range cs2p.PoolsUDP {
-			go cs.Clean(long)
+			go cs.Clean(ctx, long)
 		}
-		go cs2p.PoolTCP.Clean(long)
+		go cs2p.PoolTCP.Clean(ctx, long)
 	}
 }
 
@@ -822,50 +671,38 @@ func toNodes(peers []*Peer) []*Node {
 
 // 下线判断。
 // 主要用于节点连接测试&清理操作，采用默认超时。
-// 因此错误记入日志。
+// 注意：会记录节点的Ping值，-1表示不可达。
 // @node 目标节点
 // @return 下线返回true，反之为false
 func offline(node *Node) bool {
+	start := time.Now()
+
 	if err := Online(node.IP, node.Port, -1); err != nil {
+		node.Ping = -1
 		log.Printf("[%s] is unreachable because %s\n", node, err)
 		return true
 	}
+	node.Ping = time.Since(start)
+
 	return false
-}
-
-// 生成不重复随机值序列。
-// 用于随机索引值生成，在一个大的切片中随机提取成员。
-// @n 生成的数量（序列长度）
-// @max 最大整数值的上边界（不含）
-func randomIndexs(n, max int) []int {
-	nums := make(map[int]bool)
-	list := make([]int, n)
-
-	if n > max {
-		log.Fatalln("[Fatal] random amount large than max.")
-	}
-	for i := 0; i < n; {
-		num := rand.Intn(max)
-		if !nums[num] {
-			nums[num] = true
-			list[i] = num
-			i++
-		}
-	}
-	return list
 }
 
 // Onlines 节点集在线测试
 // 检查目标节点集内的节点是否在线。
 // 测试过程会阻塞进程，达到超时时间后会返回已成功的集合。
 // 如果所有节点都在线，则可能提前返回。
+// 注意：
+// 会记录节点的ping时间，-1值表示不可达。
 // @nodes 目标节点集
 // @long 测试超时时间限定，零值表示采用系统默认值
 // @return 在线的节点集成员
 func Onlines(nodes []*Node, long time.Duration) []*Node {
 	var wg sync.WaitGroup
 	buf := make([]*Node, 0, len(nodes))
-	out := make(chan *Node)
+
+	// 带适量缓存，
+	// 充分利用节点的反应速度（快者在前）
+	out := make(chan *Node, 3)
 
 	for _, node := range nodes {
 		wg.Add(1)
@@ -876,6 +713,7 @@ func Onlines(nodes []*Node, long time.Duration) []*Node {
 			start := time.Now()
 
 			if err := Online(node.IP, node.Port, long); err != nil {
+				node.Ping = -1
 				log.Printf("[%s] is unreachable because %s\n", node, err)
 				return
 			}

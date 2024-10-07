@@ -71,7 +71,7 @@ var (
 	findings *node.Finders
 
 	// 应用端节点池集
-	applPools node.AppliersTeams
+	applPools node.AppliersPool
 
 	// 禁闭查询通道
 	// 无缓存，维持不同请求间并发安全。
@@ -137,7 +137,7 @@ func main() {
 	for _, kn := range serviceList() {
 		// 大小和长度参数暂为统一
 		// 此为逐个设置，必要时可为每种应用配置不同的限额。
-		applPools.Init(base.KindName(kn), cfg.ConnApps, config.AppCleanLen)
+		applPools.Init(base.KindName(kn), cfg.ConnApps)
 	}
 
 	// 上下文环境
@@ -169,6 +169,9 @@ func main() {
 
 	// 接收寻找到的 Finder.Conn
 	go serverPeers(ctx, chpeer, chdone, findings, shortList)
+
+	// 候选池在线巡查
+	go serverShortlist(ctx, shortList, config.ShortlistPatrol)
 
 	// Finder巡查服务
 	go serverFinders(ctx, findings, shortList, config.FinderPatrol)
@@ -278,28 +281,25 @@ loop:
 }
 
 // 应用端连接池巡查服务
-// 定时巡查，检查节点接入时间是否超期，移除获取空间。
-// 注记：
-// 应用繁忙的节点池会在池满时强制清理，此清理与过期时间无关。
-// 因此本巡查主要针对不忙的应用类型。
+// 定时检查节点接入时间是否超期或是否在线，移除获取空间。
 // @ctx 当前上下文传递
 // @pool 应用节点连接池
-// @dur 巡查间隔时间
+// @dur 巡查间隔时间（上次巡查完到本次开始）
 func serverPatrol(ctx context.Context, pools node.AppliersPool, dur time.Duration) {
-	ticker := time.NewTicker(dur)
-	defer ticker.Stop()
-
-	// 服务名清单（全部）
-	servlist := serviceList()
+	// 支持的服务名清单
+	servlist := serviceNames(serviceList())
 	log.Println("Start client pools patrol server.")
+	// 友好：
+	// 初始可能并没有多少节点入池。
+	time.Sleep(time.Minute * 30)
 loop:
 	for {
 		select {
 		case <-ctx.Done():
 			break loop
 
-		case <-ticker.C:
-			pools.Clean(servlist, config.ApplierExpired)
+		case <-time.After(dur):
+			pools.Clean(ctx, servlist, config.ApplierExpired)
 		}
 	}
 	log.Println("applier pools patrol server exit.")
@@ -309,8 +309,14 @@ loop:
 // 从 chin 接收 ips.Finding 找到的有效节点，创建连接并请求上线协助。
 // 接收上线协助收到的节点信息，测试节点在线情况、汇入候选池。
 // 当组网池满之后，通知 ips.Finding 搜寻结束，本服务也完成初始构造任务。
-func serverPeers(ctx context.Context, chin <-chan *config.Peer, done chan struct{}, pool *node.Finders, list *node.Pool) {
+// @ctx 全局上下文
+// @chin 外部节点搜寻服务递送通道
+// @done 搜寻结束通知
+// @pool 组网池
+// @list 候选池
+func serverPeers(ctx context.Context, chin <-chan *config.Peer, done chan struct{}, pool *node.Finders, list *node.Shortlist) {
 	log.Println("First peers help server start.")
+	defer close(done)
 loop:
 	for {
 		select {
@@ -319,7 +325,6 @@ loop:
 
 		case peer := <-chin:
 			if pool.IsFulled() {
-				close(done)
 				break loop
 			}
 			if err := findingsHelp(peer, 0, list, banAddto); err != nil {
@@ -336,12 +341,7 @@ loop:
 // 定时检查组网池和候选池节点情况：
 // - 如果连接池成员充足，随机更新一个连接。
 // - 如果连接池成员不足，从候选池提取随机成员补充至满员。
-// - 如果组网池&候选池成员数量超额，清理多出的成员，维持系统设定的上限。
-// - 另外随机选1个成员，分享节点信息（COMMAND_PEER）。
-// 清理策略：
-// 优先移除距离较远的节点，同时兼顾随机性。
-// 1. 成员随机排列，检查节点距离，超出某一阈值即移除，直到满足定额。
-// 2. 如果依然超额，随机移除（忽略距离）。
+// - 随机对1个连接池成员分享节点信息（COMMAND_PEER）。
 // 注记：
 // 节点间交换信息融入候选池时，会先检查交换的节点的在线情况。
 // 从候选池取出节点补充组网池连接时，也会再测试一次对端是否在线。
@@ -349,29 +349,22 @@ loop:
 // @ctx 当前上下文
 // @pool 待监测的组网池
 // @list 候选池（备用节点）
-// @dur 巡查时间间隔
-func serverFinders(ctx context.Context, pool *node.Finders, list *node.Pool, dur time.Duration) {
-	ticker := time.NewTicker(dur)
-	defer ticker.Stop()
-
+// @dur 巡查时间间隔（完成->开始）
+func serverFinders(ctx context.Context, pool *node.Finders, list *node.Shortlist, dur time.Duration) {
 	log.Println("Start finders patrol server.")
+	// 友好：
+	// 初始可能并没有多少节点入池。
+	time.Sleep(time.Minute * 20)
 loop:
 	for {
 		select {
 		case <-ctx.Done():
 			break loop
 
-		case <-ticker.C:
-			// 超出部分清理
-			list.Trim()
-			if dels := pool.Trim(); dels != nil {
-				for _, fd := range dels {
-					fd.Conn.Close()
-				}
-			}
+		case <-time.After(dur):
 			// 随机一成员分享
 			// 分享出错会简单忽略，打印出错消息后续继续。
-			if its := pool.Random(); its != nil {
+			if its := pool.Get(); its != nil {
 				if err := finderShare(its, list, banAddto, base.COMMAND_PEER); err != nil {
 					log.Println("[Error] Finder share peers failed:", err)
 				}
@@ -387,9 +380,27 @@ loop:
 	log.Println("Finders patrol server exited.")
 }
 
-// ListenUDP 本地UDP服务器
-func ListenUDP(ctx context.Context, port int) {
-	//
+// 候选池巡查服务。
+// 主要执行候选池节点的在线检查，清理已下线节点。
+// @ctx 当前上下文
+// @list 候选池
+// @dur 巡查时间间隔（完成->开始）
+func serverShortlist(ctx context.Context, list *node.Shortlist, dur time.Duration) {
+	log.Println("Start shortlist online patrol server.")
+	// 友好：
+	// 初始可能并没有多少节点入池。
+	time.Sleep(time.Minute * 20)
+loop:
+	for {
+		select {
+		case <-ctx.Done():
+			break loop
+
+		case <-time.After(dur):
+			list.Clean(ctx)
+		}
+	}
+	log.Println("Shortlist patrol server exited.")
 }
 
 // 连接处理器（主）
@@ -622,8 +633,10 @@ func simpleProcess(msg string, conn *websocket.Conn, w http.ResponseWriter) bool
 
 	// 结束连接
 	case base.CmdFindBye:
-		if err := findings.Remove(conn); err != nil {
-			log.Println("The connection was closed by", conn.RemoteAddr())
+		node := findings.Dispose(conn)
+		if node != nil {
+			node.Quit()
+			log.Printf("The [%s] node was disposed.\n", node)
 		}
 		// 触发补充&检查
 		finderReplenish(findings, shortList, banAddto)
@@ -641,7 +654,7 @@ func simpleProcess(msg string, conn *websocket.Conn, w http.ResponseWriter) bool
 // @conn 当前连接
 // @pool 节点提取来源池（候选池）
 // @max 提取节点的最大数量
-func findingsPush(conn *websocket.Conn, pool *node.Pool, max int, cmd base.Command) error {
+func findingsPush(conn *websocket.Conn, pool *node.Shortlist, max int, cmd base.Command) error {
 	data, err := node.EncodePeers(
 		pool.List(max),
 	)
@@ -666,7 +679,7 @@ func findingsPush(conn *websocket.Conn, pool *node.Pool, max int, cmd base.Comma
 // @conn 当前连接
 // @pool 有效节点汇入池（候选池）
 // @qban 禁闭查询通道
-func findingsGets(data []byte, pool *node.Pool, qban chan string) error {
+func findingsGets(data []byte, pool *node.Shortlist, qban chan string) error {
 	nodes, err := node.DecodePeers(data)
 	if err != nil {
 		log.Println("[Error] decoding client peers data.")
@@ -677,7 +690,7 @@ func findingsGets(data []byte, pool *node.Pool, qban chan string) error {
 
 	if len(nodes) > 0 {
 		// 仅在线的节点入池。
-		pool.AddNodes(node.Onlines(nodes, 0), true)
+		pool.Adds(node.Onlines(nodes, 0)...)
 	}
 	return nil
 }
@@ -690,7 +703,7 @@ func findingsGets(data []byte, pool *node.Pool, qban chan string) error {
 // @pool 有效节点获取&汇入池（候选池）
 // @amount 发送的信息量
 // @cmd 关联指令名
-func findingsPeers(data []byte, w http.ResponseWriter, conn *websocket.Conn, pool *node.Pool, amount int, cmd base.Command) {
+func findingsPeers(data []byte, w http.ResponseWriter, conn *websocket.Conn, pool *node.Shortlist, amount int, cmd base.Command) {
 	go func() {
 		// 在线测试耗时，故独立协程
 		if err := findingsGets(data, pool, banQuery); err != nil {
@@ -708,11 +721,11 @@ func findingsPeers(data []byte, w http.ResponseWriter, conn *websocket.Conn, poo
 // @peer 目标节点
 // @long 拨号等待超时设置
 // @pool 汇入的节点池（候选池）
-func findingsHelp(peer *config.Peer, long time.Duration, pool *node.Pool, aban chan<- string) error {
+func findingsHelp(peer *config.Peer, long time.Duration, pool *node.Shortlist, aban chan<- string) error {
 	if pool.IsFulled() {
 		return nil
 	}
-	conn, err := node.WebsocketDial(peer.IP, peer.Port, long)
+	conn, err := node.WebsocketDial(peer.IP, int(peer.Port), long)
 	if err != nil {
 		log.Println("[Error] first dial peer.")
 		return err
@@ -758,13 +771,14 @@ func findingsKinds(conn *websocket.Conn, list []*base.Kind, cmd base.Command) er
 // 从候选池创建一个Finder
 // 会持续从候选池中提取节点，直到目标节点可用。
 // @pool 节点取用源（候选池）
-func createFinder(pool *node.Pool) (*node.Finder, error) {
+func createFinder(pool *node.Shortlist) (*node.Finder, error) {
 	for {
-		its := pool.Pick()
+		its := pool.Take()
 		if its == nil {
 			return nil, errors.New("the shortlist was empty")
 		}
 		conn, err := node.WebsocketDial(its.IP, its.Port, 0)
+
 		if err != nil {
 			log.Println("[Error] shortlist node was offline:", err)
 			continue
@@ -777,7 +791,7 @@ func createFinder(pool *node.Pool) (*node.Finder, error) {
 // 从候选池中取出节点，直到找到一个在线的对端。
 // @pool 组网池
 // @list 候选池
-func finderReplenish(pool *node.Finders, list *node.Pool, aban chan<- string) {
+func finderReplenish(pool *node.Finders, list *node.Shortlist, aban chan<- string) {
 	for {
 		if pool.IsFulled() {
 			break
@@ -805,7 +819,7 @@ func finderReplenish(pool *node.Finders, list *node.Pool, aban chan<- string) {
 // @list 候选池
 // @aban 禁闭添加通道
 // @return 更新是否出错
-func finderUpdate(pool *node.Finders, list *node.Pool, aban chan<- string) error {
+func finderUpdate(pool *node.Finders, list *node.Shortlist, aban chan<- string) error {
 	var new *node.Finder
 	var err error
 	for {
@@ -821,7 +835,7 @@ func finderUpdate(pool *node.Finders, list *node.Pool, aban chan<- string) error
 		break
 	}
 	// 先随机移除
-	del := pool.Pick()
+	del := pool.Take()
 	if del != nil {
 		del.Conn.WriteMessage(websocket.TextMessage, []byte(base.CmdFindBye))
 		del.Conn.Close()
@@ -836,7 +850,7 @@ func finderUpdate(pool *node.Finders, list *node.Pool, aban chan<- string) error
 // @list 分享来源（候选池）
 // @aban 禁闭通知通道
 // @cmd 分享类指令（COMMAND_JOIN|COMMAND_PEER）
-func finderShare(finder *node.Finder, list *node.Pool, aban chan<- string, cmd base.Command) error {
+func finderShare(finder *node.Finder, list *node.Shortlist, aban chan<- string, cmd base.Command) error {
 	var err error
 	// 分享节点信息
 	if err = findingsPush(finder.Conn, list, config.SomeFindings, cmd); err != nil {
@@ -857,7 +871,7 @@ func finderShare(finder *node.Finder, list *node.Pool, aban chan<- string, cmd b
 // @punch 源客户端打洞信息包
 // @pools NAT 节点池组（0:Pub/FullC; 1:RC; 2:P-RC; 3:Sym）
 // @amount 尝试协助互通的节点数上限
-func servicePunching(conn *websocket.Conn, punch *stun.Puncher, pools []*node.Appliers, amount int) error {
+func servicePunching(conn *websocket.Conn, punch *stun.Peer, pools []*node.Appliers, amount int) error {
 	if pools == nil {
 		return errAppliersEmpty
 	}
@@ -887,7 +901,7 @@ func servicePunching(conn *websocket.Conn, punch *stun.Puncher, pools []*node.Ap
 // @pools NAT 节点池组（0:Pub/FullC; 1:RC; 2:P-RC; 3:Sym）
 // @max 失败再尝试次数
 // @return 成功写入打洞信息包的匹配端
-func punchingPeer(conn *websocket.Conn, punch *stun.Puncher, pools []*node.Appliers, max int) (*node.Applier, error) {
+func punchingPeer(conn *websocket.Conn, punch *stun.Peer, pools []*node.Appliers, max int) (*node.Applier, error) {
 	var err error
 	var dir *stun.PunchDir
 	var peer *node.Applier
@@ -898,7 +912,7 @@ func punchingPeer(conn *websocket.Conn, punch *stun.Puncher, pools []*node.Appli
 		if peer == nil {
 			return nil, errApplierNotFound
 		}
-		punch2 := peer.Puncher()
+		punch2 := peer.Peer
 
 		// dir[0] punch
 		// dir[1] punch2
@@ -924,7 +938,7 @@ func punchingPeer(conn *websocket.Conn, punch *stun.Puncher, pools []*node.Appli
 // @punch 打洞信息包
 // @cmd 顶层封装类别（应为 COMMAND_PUNCH）
 // @return 返回错误通常表示传输失败（对端不在线）
-func punchingPush(conn *websocket.Conn, dir string, punch *stun.Puncher, cmd base.Command) error {
+func punchingPush(conn *websocket.Conn, dir string, punch *stun.Peer, cmd base.Command) error {
 	// 内层编码
 	data, err := stun.EncodePunch(dir, punch)
 	if err != nil {
@@ -962,6 +976,17 @@ func serviceList() []*base.Kind {
 	return list
 }
 
+// 创建服务类型名称集。
+// 将 base.Kind 的分解形式合成为 kind:name 字符串。
+func serviceNames(list []*base.Kind) []string {
+	names := make([]string, len(list))
+
+	for i, kn := range list {
+		names[i] = base.KindName(kn)
+	}
+	return names
+}
+
 // 查询服务类型的受益账号。
 // @name 应用服务的类型名
 // @return 服务器相应的收益地址（区块链账号）
@@ -986,14 +1011,14 @@ func serviceStake(name string) string {
 // 返回nil表示没有匹配的节点，通常是因为应用端节点池为空所致。
 func punchMatched(level stun.NatLevel, pools []*node.Appliers) *node.Applier {
 	// Pub/FullC
-	c0 := pools[0].Get()
+	_, c0 := pools[0].Get()
 
 	if level == stun.NAT_LEVEL_SYM {
 		return c0
 	}
-	c1 := pools[1].Get() // RC
-	c2 := pools[2].Get() // P-RC
-	c3 := pools[3].Get() // Sym
+	_, c1 := pools[1].Get() // RC
+	_, c2 := pools[2].Get() // P-RC
+	_, c3 := pools[3].Get() // Sym
 
 	switch level {
 	case stun.NAT_LEVEL_PRC:
@@ -1044,7 +1069,7 @@ func supportKind(name string) bool {
 // @conn 目标连接
 // @pool 待汇入目标（候选池）
 // @cmdx 欲匹配的消息指令
-func receivePeers(conn *websocket.Conn, pool *node.Pool, cmdx base.Command) error {
+func receivePeers(conn *websocket.Conn, pool *node.Shortlist, cmdx base.Command) error {
 	typ, msg, err := conn.ReadMessage()
 	if err != nil {
 		return err
