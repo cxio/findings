@@ -1,12 +1,11 @@
 syntax = "proto3";
 
-// 应用端消息
-// 由应用端节点自己传递相关信息，因此可以向任意服务器请求服务。
+// 应用端信息
 message Appinfo {
-    string kind = 1;    // 应用类型
-    string network = 2; // 协议支持类型（tcp|udp）
-    bytes ip = 3;       // 公网 IP
-    int32 port = 4;     // 公网端口（监听|通讯）
+    string base = 1;    // 所属基础类别
+    string name = 2;    // 应用名
+    bytes ip = 3;       // UDP 公网 IP
+    int32 port = 4;     // UDP 公网端口（监听|通讯）
     int32 level = 5;    // NAT 层级（0: Pub/FullC; 1: RC; 2: P-RC; 3: Sym）
     bytes extra = 6;    // 额外信息（可用于打洞核验）
 }
@@ -24,20 +23,38 @@ message Punchx {
     bytes token = 4;    // 验证标识（对端原样回传）
 }
 
+// 服务器信息包
+// 服务器接收到客户端的请求后，向客户端返回的信息。
+// 可用于 STUN:Cone, STUN:Sym, STUN:Live 全部三个服务。
+// 约束：
+// UDP:IP地址与TCP链路相同，因此这里只需端口信息。
+message ServInfo {
+    int32 port = 1;     // UDP 服务器端口
+    bytes sn32 = 2;     // 随机序列号（32 bytes）
+    bytes skey = 3;     // 对称加密密钥
+    bytes token = 4;    // 半个密钥种子（需原样回传）
+}
+
 // LiveNAT 消息包
 // 包含客户端提供的目标UDP地址和序列号。
 // 序列号之前会前置一个批次字节，以方便客户端辨别发送的时间段。
 message LiveNAT {
     bytes sn33 = 1;     // 批次+序列号（1+32字节）
-    bytes xaddr = 2;    // 公网地址（IP+Port），已加密
+    int32 port = 2;     // 公网端口
 }
 
 // Hosto NewHost协助消息
 // 记载客户端UDP信息，在TCP链路上请求对端协助。
 message Hosto {
-    bytes ip = 1;   // 公网IP（UDP）
-    int32 port = 2; // 端口（UDP）
+    bytes ip = 1;   // 公网IP
+    int32 port = 2; // 端口
     bytes sn32 = 3; // 序列号（32字节）
+}
+
+// UDPInfo 客户端UDP信息
+message UDPInfo {
+    bytes ip = 1;   // UDP 公网IP
+    int32 port = 2; // UDP 公网端口
 }
 
 option go_package = "../stun";

@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.34.1
 // 	protoc        v5.26.1
-// source: stun.proto
+// source: stund.proto
 
 package stun
 
@@ -20,25 +20,24 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// 应用端消息
-// 由应用端节点自己传递相关信息，因此可以向任意服务器请求服务。
+// 应用端信息
 type Appinfo struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Kind    string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`       // 应用类型
-	Network string `protobuf:"bytes,2,opt,name=network,proto3" json:"network,omitempty"` // 协议支持类型（tcp|udp）
-	Ip      []byte `protobuf:"bytes,3,opt,name=ip,proto3" json:"ip,omitempty"`           // 公网 IP
-	Port    int32  `protobuf:"varint,4,opt,name=port,proto3" json:"port,omitempty"`      // 公网端口（监听|通讯）
-	Level   int32  `protobuf:"varint,5,opt,name=level,proto3" json:"level,omitempty"`    // NAT 层级（0: Pub/FullC; 1: RC; 2: P-RC; 3: Sym）
-	Extra   []byte `protobuf:"bytes,6,opt,name=extra,proto3" json:"extra,omitempty"`     // 额外信息（可用于打洞核验）
+	Base  string `protobuf:"bytes,1,opt,name=base,proto3" json:"base,omitempty"`    // 所属基础类别
+	Name  string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`    // 应用名
+	Ip    []byte `protobuf:"bytes,3,opt,name=ip,proto3" json:"ip,omitempty"`        // UDP 公网 IP
+	Port  int32  `protobuf:"varint,4,opt,name=port,proto3" json:"port,omitempty"`   // UDP 公网端口（监听|通讯）
+	Level int32  `protobuf:"varint,5,opt,name=level,proto3" json:"level,omitempty"` // NAT 层级（0: Pub/FullC; 1: RC; 2: P-RC; 3: Sym）
+	Extra []byte `protobuf:"bytes,6,opt,name=extra,proto3" json:"extra,omitempty"`  // 额外信息（可用于打洞核验）
 }
 
 func (x *Appinfo) Reset() {
 	*x = Appinfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_stun_proto_msgTypes[0]
+		mi := &file_stund_proto_msgTypes[0]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -51,7 +50,7 @@ func (x *Appinfo) String() string {
 func (*Appinfo) ProtoMessage() {}
 
 func (x *Appinfo) ProtoReflect() protoreflect.Message {
-	mi := &file_stun_proto_msgTypes[0]
+	mi := &file_stund_proto_msgTypes[0]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64,19 +63,19 @@ func (x *Appinfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Appinfo.ProtoReflect.Descriptor instead.
 func (*Appinfo) Descriptor() ([]byte, []int) {
-	return file_stun_proto_rawDescGZIP(), []int{0}
+	return file_stund_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *Appinfo) GetKind() string {
+func (x *Appinfo) GetBase() string {
 	if x != nil {
-		return x.Kind
+		return x.Base
 	}
 	return ""
 }
 
-func (x *Appinfo) GetNetwork() string {
+func (x *Appinfo) GetName() string {
 	if x != nil {
-		return x.Network
+		return x.Name
 	}
 	return ""
 }
@@ -129,7 +128,7 @@ type Punchx struct {
 func (x *Punchx) Reset() {
 	*x = Punchx{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_stun_proto_msgTypes[1]
+		mi := &file_stund_proto_msgTypes[1]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -142,7 +141,7 @@ func (x *Punchx) String() string {
 func (*Punchx) ProtoMessage() {}
 
 func (x *Punchx) ProtoReflect() protoreflect.Message {
-	mi := &file_stun_proto_msgTypes[1]
+	mi := &file_stund_proto_msgTypes[1]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -155,7 +154,7 @@ func (x *Punchx) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Punchx.ProtoReflect.Descriptor instead.
 func (*Punchx) Descriptor() ([]byte, []int) {
-	return file_stun_proto_rawDescGZIP(), []int{1}
+	return file_stund_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Punchx) GetDir() string {
@@ -193,6 +192,82 @@ func (x *Punchx) GetToken() []byte {
 	return nil
 }
 
+// 服务器信息包
+// 服务器接收到客户端的请求后，向客户端返回的信息。
+// 可用于 STUN:Cone, STUN:Sym, STUN:Live 全部三个服务。
+// 约束：
+// UDP:IP地址与TCP链路相同，因此这里只需端口信息。
+type ServInfo struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Port  int32  `protobuf:"varint,1,opt,name=port,proto3" json:"port,omitempty"`  // UDP 服务器端口
+	Sn32  []byte `protobuf:"bytes,2,opt,name=sn32,proto3" json:"sn32,omitempty"`   // 随机序列号（32 bytes）
+	Skey  []byte `protobuf:"bytes,3,opt,name=skey,proto3" json:"skey,omitempty"`   // 对称加密密钥
+	Token []byte `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"` // 半个密钥种子（需原样回传）
+}
+
+func (x *ServInfo) Reset() {
+	*x = ServInfo{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_stund_proto_msgTypes[2]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ServInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServInfo) ProtoMessage() {}
+
+func (x *ServInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_stund_proto_msgTypes[2]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServInfo.ProtoReflect.Descriptor instead.
+func (*ServInfo) Descriptor() ([]byte, []int) {
+	return file_stund_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ServInfo) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *ServInfo) GetSn32() []byte {
+	if x != nil {
+		return x.Sn32
+	}
+	return nil
+}
+
+func (x *ServInfo) GetSkey() []byte {
+	if x != nil {
+		return x.Skey
+	}
+	return nil
+}
+
+func (x *ServInfo) GetToken() []byte {
+	if x != nil {
+		return x.Token
+	}
+	return nil
+}
+
 // LiveNAT 消息包
 // 包含客户端提供的目标UDP地址和序列号。
 // 序列号之前会前置一个批次字节，以方便客户端辨别发送的时间段。
@@ -201,14 +276,14 @@ type LiveNAT struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Sn33  []byte `protobuf:"bytes,1,opt,name=sn33,proto3" json:"sn33,omitempty"`   // 批次+序列号（1+32字节）
-	Xaddr []byte `protobuf:"bytes,2,opt,name=xaddr,proto3" json:"xaddr,omitempty"` // 公网地址（IP+Port），已加密
+	Sn33 []byte `protobuf:"bytes,1,opt,name=sn33,proto3" json:"sn33,omitempty"`  // 批次+序列号（1+32字节）
+	Port int32  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"` // 公网端口
 }
 
 func (x *LiveNAT) Reset() {
 	*x = LiveNAT{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_stun_proto_msgTypes[2]
+		mi := &file_stund_proto_msgTypes[3]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -221,7 +296,7 @@ func (x *LiveNAT) String() string {
 func (*LiveNAT) ProtoMessage() {}
 
 func (x *LiveNAT) ProtoReflect() protoreflect.Message {
-	mi := &file_stun_proto_msgTypes[2]
+	mi := &file_stund_proto_msgTypes[3]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -234,7 +309,7 @@ func (x *LiveNAT) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LiveNAT.ProtoReflect.Descriptor instead.
 func (*LiveNAT) Descriptor() ([]byte, []int) {
-	return file_stun_proto_rawDescGZIP(), []int{2}
+	return file_stund_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *LiveNAT) GetSn33() []byte {
@@ -244,11 +319,11 @@ func (x *LiveNAT) GetSn33() []byte {
 	return nil
 }
 
-func (x *LiveNAT) GetXaddr() []byte {
+func (x *LiveNAT) GetPort() int32 {
 	if x != nil {
-		return x.Xaddr
+		return x.Port
 	}
-	return nil
+	return 0
 }
 
 // Hosto NewHost协助消息
@@ -258,15 +333,15 @@ type Hosto struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Ip   []byte `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`      // 公网IP（UDP）
-	Port int32  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"` // 端口（UDP）
+	Ip   []byte `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`      // 公网IP
+	Port int32  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"` // 端口
 	Sn32 []byte `protobuf:"bytes,3,opt,name=sn32,proto3" json:"sn32,omitempty"`  // 序列号（32字节）
 }
 
 func (x *Hosto) Reset() {
 	*x = Hosto{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_stun_proto_msgTypes[3]
+		mi := &file_stund_proto_msgTypes[4]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -279,7 +354,7 @@ func (x *Hosto) String() string {
 func (*Hosto) ProtoMessage() {}
 
 func (x *Hosto) ProtoReflect() protoreflect.Message {
-	mi := &file_stun_proto_msgTypes[3]
+	mi := &file_stund_proto_msgTypes[4]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -292,7 +367,7 @@ func (x *Hosto) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Hosto.ProtoReflect.Descriptor instead.
 func (*Hosto) Descriptor() ([]byte, []int) {
-	return file_stun_proto_rawDescGZIP(), []int{3}
+	return file_stund_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Hosto) GetIp() []byte {
@@ -316,56 +391,123 @@ func (x *Hosto) GetSn32() []byte {
 	return nil
 }
 
-var File_stun_proto protoreflect.FileDescriptor
+// UDPInfo 客户端UDP信息
+type UDPInfo struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
 
-var file_stun_proto_rawDesc = []byte{
-	0x0a, 0x0a, 0x73, 0x74, 0x75, 0x6e, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x22, 0x87, 0x01, 0x0a,
-	0x07, 0x41, 0x70, 0x70, 0x69, 0x6e, 0x66, 0x6f, 0x12, 0x12, 0x0a, 0x04, 0x6b, 0x69, 0x6e, 0x64,
-	0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x6b, 0x69, 0x6e, 0x64, 0x12, 0x18, 0x0a, 0x07,
-	0x6e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x6e,
-	0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x12, 0x0e, 0x0a, 0x02, 0x69, 0x70, 0x18, 0x03, 0x20, 0x01,
-	0x28, 0x0c, 0x52, 0x02, 0x69, 0x70, 0x12, 0x12, 0x0a, 0x04, 0x70, 0x6f, 0x72, 0x74, 0x18, 0x04,
-	0x20, 0x01, 0x28, 0x05, 0x52, 0x04, 0x70, 0x6f, 0x72, 0x74, 0x12, 0x14, 0x0a, 0x05, 0x6c, 0x65,
-	0x76, 0x65, 0x6c, 0x18, 0x05, 0x20, 0x01, 0x28, 0x05, 0x52, 0x05, 0x6c, 0x65, 0x76, 0x65, 0x6c,
-	0x12, 0x14, 0x0a, 0x05, 0x65, 0x78, 0x74, 0x72, 0x61, 0x18, 0x06, 0x20, 0x01, 0x28, 0x0c, 0x52,
-	0x05, 0x65, 0x78, 0x74, 0x72, 0x61, 0x22, 0x6a, 0x0a, 0x06, 0x50, 0x75, 0x6e, 0x63, 0x68, 0x78,
-	0x12, 0x10, 0x0a, 0x03, 0x64, 0x69, 0x72, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x64,
-	0x69, 0x72, 0x12, 0x0e, 0x0a, 0x02, 0x69, 0x70, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x02,
-	0x69, 0x70, 0x12, 0x12, 0x0a, 0x04, 0x70, 0x6f, 0x72, 0x74, 0x18, 0x03, 0x20, 0x01, 0x28, 0x05,
-	0x52, 0x04, 0x70, 0x6f, 0x72, 0x74, 0x12, 0x14, 0x0a, 0x05, 0x6c, 0x65, 0x76, 0x65, 0x6c, 0x18,
-	0x05, 0x20, 0x01, 0x28, 0x05, 0x52, 0x05, 0x6c, 0x65, 0x76, 0x65, 0x6c, 0x12, 0x14, 0x0a, 0x05,
-	0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x05, 0x74, 0x6f, 0x6b,
-	0x65, 0x6e, 0x22, 0x33, 0x0a, 0x07, 0x4c, 0x69, 0x76, 0x65, 0x4e, 0x41, 0x54, 0x12, 0x12, 0x0a,
-	0x04, 0x73, 0x6e, 0x33, 0x33, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x04, 0x73, 0x6e, 0x33,
-	0x33, 0x12, 0x14, 0x0a, 0x05, 0x78, 0x61, 0x64, 0x64, 0x72, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c,
-	0x52, 0x05, 0x78, 0x61, 0x64, 0x64, 0x72, 0x22, 0x3f, 0x0a, 0x05, 0x48, 0x6f, 0x73, 0x74, 0x6f,
-	0x12, 0x0e, 0x0a, 0x02, 0x69, 0x70, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x02, 0x69, 0x70,
-	0x12, 0x12, 0x0a, 0x04, 0x70, 0x6f, 0x72, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x05, 0x52, 0x04,
-	0x70, 0x6f, 0x72, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x73, 0x6e, 0x33, 0x32, 0x18, 0x03, 0x20, 0x01,
-	0x28, 0x0c, 0x52, 0x04, 0x73, 0x6e, 0x33, 0x32, 0x42, 0x09, 0x5a, 0x07, 0x2e, 0x2e, 0x2f, 0x73,
-	0x74, 0x75, 0x6e, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	Ip   []byte `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`      // UDP 公网IP
+	Port int32  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"` // UDP 公网端口
+}
+
+func (x *UDPInfo) Reset() {
+	*x = UDPInfo{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_stund_proto_msgTypes[5]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *UDPInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UDPInfo) ProtoMessage() {}
+
+func (x *UDPInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_stund_proto_msgTypes[5]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UDPInfo.ProtoReflect.Descriptor instead.
+func (*UDPInfo) Descriptor() ([]byte, []int) {
+	return file_stund_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *UDPInfo) GetIp() []byte {
+	if x != nil {
+		return x.Ip
+	}
+	return nil
+}
+
+func (x *UDPInfo) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+var File_stund_proto protoreflect.FileDescriptor
+
+var file_stund_proto_rawDesc = []byte{
+	0x0a, 0x0b, 0x73, 0x74, 0x75, 0x6e, 0x64, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x22, 0x81, 0x01,
+	0x0a, 0x07, 0x41, 0x70, 0x70, 0x69, 0x6e, 0x66, 0x6f, 0x12, 0x12, 0x0a, 0x04, 0x62, 0x61, 0x73,
+	0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x62, 0x61, 0x73, 0x65, 0x12, 0x12, 0x0a,
+	0x04, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x6e, 0x61, 0x6d,
+	0x65, 0x12, 0x0e, 0x0a, 0x02, 0x69, 0x70, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x02, 0x69,
+	0x70, 0x12, 0x12, 0x0a, 0x04, 0x70, 0x6f, 0x72, 0x74, 0x18, 0x04, 0x20, 0x01, 0x28, 0x05, 0x52,
+	0x04, 0x70, 0x6f, 0x72, 0x74, 0x12, 0x14, 0x0a, 0x05, 0x6c, 0x65, 0x76, 0x65, 0x6c, 0x18, 0x05,
+	0x20, 0x01, 0x28, 0x05, 0x52, 0x05, 0x6c, 0x65, 0x76, 0x65, 0x6c, 0x12, 0x14, 0x0a, 0x05, 0x65,
+	0x78, 0x74, 0x72, 0x61, 0x18, 0x06, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x05, 0x65, 0x78, 0x74, 0x72,
+	0x61, 0x22, 0x6a, 0x0a, 0x06, 0x50, 0x75, 0x6e, 0x63, 0x68, 0x78, 0x12, 0x10, 0x0a, 0x03, 0x64,
+	0x69, 0x72, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x64, 0x69, 0x72, 0x12, 0x0e, 0x0a,
+	0x02, 0x69, 0x70, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x02, 0x69, 0x70, 0x12, 0x12, 0x0a,
+	0x04, 0x70, 0x6f, 0x72, 0x74, 0x18, 0x03, 0x20, 0x01, 0x28, 0x05, 0x52, 0x04, 0x70, 0x6f, 0x72,
+	0x74, 0x12, 0x14, 0x0a, 0x05, 0x6c, 0x65, 0x76, 0x65, 0x6c, 0x18, 0x05, 0x20, 0x01, 0x28, 0x05,
+	0x52, 0x05, 0x6c, 0x65, 0x76, 0x65, 0x6c, 0x12, 0x14, 0x0a, 0x05, 0x74, 0x6f, 0x6b, 0x65, 0x6e,
+	0x18, 0x04, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x05, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x22, 0x5c, 0x0a,
+	0x08, 0x53, 0x65, 0x72, 0x76, 0x49, 0x6e, 0x66, 0x6f, 0x12, 0x12, 0x0a, 0x04, 0x70, 0x6f, 0x72,
+	0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x05, 0x52, 0x04, 0x70, 0x6f, 0x72, 0x74, 0x12, 0x12, 0x0a,
+	0x04, 0x73, 0x6e, 0x33, 0x32, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x04, 0x73, 0x6e, 0x33,
+	0x32, 0x12, 0x12, 0x0a, 0x04, 0x73, 0x6b, 0x65, 0x79, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0c, 0x52,
+	0x04, 0x73, 0x6b, 0x65, 0x79, 0x12, 0x14, 0x0a, 0x05, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x18, 0x04,
+	0x20, 0x01, 0x28, 0x0c, 0x52, 0x05, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x22, 0x31, 0x0a, 0x07, 0x4c,
+	0x69, 0x76, 0x65, 0x4e, 0x41, 0x54, 0x12, 0x12, 0x0a, 0x04, 0x73, 0x6e, 0x33, 0x33, 0x18, 0x01,
+	0x20, 0x01, 0x28, 0x0c, 0x52, 0x04, 0x73, 0x6e, 0x33, 0x33, 0x12, 0x12, 0x0a, 0x04, 0x70, 0x6f,
+	0x72, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x05, 0x52, 0x04, 0x70, 0x6f, 0x72, 0x74, 0x22, 0x3f,
+	0x0a, 0x05, 0x48, 0x6f, 0x73, 0x74, 0x6f, 0x12, 0x0e, 0x0a, 0x02, 0x69, 0x70, 0x18, 0x01, 0x20,
+	0x01, 0x28, 0x0c, 0x52, 0x02, 0x69, 0x70, 0x12, 0x12, 0x0a, 0x04, 0x70, 0x6f, 0x72, 0x74, 0x18,
+	0x02, 0x20, 0x01, 0x28, 0x05, 0x52, 0x04, 0x70, 0x6f, 0x72, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x73,
+	0x6e, 0x33, 0x32, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x04, 0x73, 0x6e, 0x33, 0x32, 0x22,
+	0x2d, 0x0a, 0x07, 0x55, 0x44, 0x50, 0x49, 0x6e, 0x66, 0x6f, 0x12, 0x0e, 0x0a, 0x02, 0x69, 0x70,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x02, 0x69, 0x70, 0x12, 0x12, 0x0a, 0x04, 0x70, 0x6f,
+	0x72, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x05, 0x52, 0x04, 0x70, 0x6f, 0x72, 0x74, 0x42, 0x09,
+	0x5a, 0x07, 0x2e, 0x2e, 0x2f, 0x73, 0x74, 0x75, 0x6e, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f,
+	0x33,
 }
 
 var (
-	file_stun_proto_rawDescOnce sync.Once
-	file_stun_proto_rawDescData = file_stun_proto_rawDesc
+	file_stund_proto_rawDescOnce sync.Once
+	file_stund_proto_rawDescData = file_stund_proto_rawDesc
 )
 
-func file_stun_proto_rawDescGZIP() []byte {
-	file_stun_proto_rawDescOnce.Do(func() {
-		file_stun_proto_rawDescData = protoimpl.X.CompressGZIP(file_stun_proto_rawDescData)
+func file_stund_proto_rawDescGZIP() []byte {
+	file_stund_proto_rawDescOnce.Do(func() {
+		file_stund_proto_rawDescData = protoimpl.X.CompressGZIP(file_stund_proto_rawDescData)
 	})
-	return file_stun_proto_rawDescData
+	return file_stund_proto_rawDescData
 }
 
-var file_stun_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
-var file_stun_proto_goTypes = []interface{}{
-	(*Appinfo)(nil), // 0: Appinfo
-	(*Punchx)(nil),  // 1: Punchx
-	(*LiveNAT)(nil), // 2: LiveNAT
-	(*Hosto)(nil),   // 3: Hosto
+var file_stund_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_stund_proto_goTypes = []interface{}{
+	(*Appinfo)(nil),  // 0: Appinfo
+	(*Punchx)(nil),   // 1: Punchx
+	(*ServInfo)(nil), // 2: ServInfo
+	(*LiveNAT)(nil),  // 3: LiveNAT
+	(*Hosto)(nil),    // 4: Hosto
+	(*UDPInfo)(nil),  // 5: UDPInfo
 }
-var file_stun_proto_depIdxs = []int32{
+var file_stund_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
 	0, // [0:0] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -373,13 +515,13 @@ var file_stun_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_stun_proto_init() }
-func file_stun_proto_init() {
-	if File_stun_proto != nil {
+func init() { file_stund_proto_init() }
+func file_stund_proto_init() {
+	if File_stund_proto != nil {
 		return
 	}
 	if !protoimpl.UnsafeEnabled {
-		file_stun_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
+		file_stund_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Appinfo); i {
 			case 0:
 				return &v.state
@@ -391,7 +533,7 @@ func file_stun_proto_init() {
 				return nil
 			}
 		}
-		file_stun_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
+		file_stund_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Punchx); i {
 			case 0:
 				return &v.state
@@ -403,7 +545,19 @@ func file_stun_proto_init() {
 				return nil
 			}
 		}
-		file_stun_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
+		file_stund_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ServInfo); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_stund_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*LiveNAT); i {
 			case 0:
 				return &v.state
@@ -415,8 +569,20 @@ func file_stun_proto_init() {
 				return nil
 			}
 		}
-		file_stun_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
+		file_stund_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Hosto); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_stund_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*UDPInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -432,18 +598,18 @@ func file_stun_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: file_stun_proto_rawDesc,
+			RawDescriptor: file_stund_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_stun_proto_goTypes,
-		DependencyIndexes: file_stun_proto_depIdxs,
-		MessageInfos:      file_stun_proto_msgTypes,
+		GoTypes:           file_stund_proto_goTypes,
+		DependencyIndexes: file_stund_proto_depIdxs,
+		MessageInfos:      file_stund_proto_msgTypes,
 	}.Build()
-	File_stun_proto = out.File
-	file_stun_proto_rawDesc = nil
-	file_stun_proto_goTypes = nil
-	file_stun_proto_depIdxs = nil
+	File_stund_proto = out.File
+	file_stund_proto_rawDesc = nil
+	file_stund_proto_goTypes = nil
+	file_stund_proto_depIdxs = nil
 }

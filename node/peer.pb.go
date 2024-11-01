@@ -20,7 +20,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// 节点信息类
+// 节点信息
 // 仅有可直连的 NAT:Pub/FullC 类型才会被传递。
 // 因此无需携带 NAT 类型。
 type Peer struct {

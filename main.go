@@ -33,10 +33,8 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
@@ -47,7 +45,6 @@ import (
 	"github.com/cxio/findings/crypto/selfsign"
 	"github.com/cxio/findings/ips"
 	"github.com/cxio/findings/node"
-	"github.com/cxio/findings/stun"
 	"github.com/gorilla/websocket"
 )
 
@@ -57,47 +54,8 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: config.BufferSize,
 }
 
-// 服务器权益地址池
-// - key: 应用类型名
-// - value: 接收捐赠的区块链账户地址
-// 只读，并发安全。
-var stakePool map[string]string
-
-var (
-	// 候选池
-	shortList *node.Shortlist
-
-	// 组网池
-	findings *node.Finders
-
-	// 应用端节点池集
-	applPools node.AppliersPool
-
-	// 禁闭查询通道
-	// 无缓存，维持不同请求间并发安全。
-	banQuery = make(chan string)
-
-	// 禁闭添加通道
-	// 单向添加用途，故带缓存无阻塞。
-	banAddto = make(chan string, 1)
-
-	// 服务器关闭等待
-	idleConnsClosed = make(chan struct{})
-
-	// NAT 探测协作通知渠道
-	stunNotice = make(chan *stun.Notice, 1)
-
-	// NAT 探测客户端信息通道
-	stunClient <-chan *stun.Client
-)
-
-var (
-	// 应用端节点池组为空
-	errAppliersEmpty = errors.New("the clients pools is empty")
-
-	// 没有匹配的打洞节点
-	errApplierNotFound = errors.New("no matching nodes on STUN service")
-)
+// 服务器关闭等待
+var idleConnsClosed = make(chan struct{})
 
 func main() {
 	// 读取基础配置
@@ -123,58 +81,22 @@ func main() {
 
 	// 服务器权益账户
 	// 注意：赋值到全局变量上。
-	stakePool, err = config.Services()
+	stakePool, err := config.Services()
 	if err != nil {
 		log.Fatalln("[Error] reading stakes of server:", err)
 	}
-
-	// 全局节点池
-	shortList = node.NewShortlist(cfg.Shortlist)
-	findings = node.NewFinders(cfg.Findings)
-	applPools = node.NewAppliersPool()
-
-	// 应用集支持
-	for _, kn := range serviceList() {
-		// 大小和长度参数暂为统一
-		// 此为逐个设置，必要时可为每种应用配置不同的限额。
-		applPools.Init(base.KindName(kn), cfg.ConnApps)
-	}
-
 	// 上下文环境
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// 启动两个UDP服务器
-	go func() {
-		stunClient = stun.ListenUDP(ctx, config.UDPListen, base.GlobalSeed, stunNotice)
-	}()
-	go stun.LiveListen(ctx, config.UDPLiving, base.GlobalSeed)
+	// 向外寻找 Finder
+	chpeer, done := ips.Finding(ctx, cfg.RemotePort, peers, cfg.PeerFindRange)
+
+	// 节点模块初始化
+	node.Init(ctx, cfg, stakePool, chpeer, done)
 
 	// 恶意节点监察
-	go serverBans(ctx, bans)
-
-	// 应用清理巡查
-	// 主要用于不忙的应用清理太旧的信息以节省系统内容。
-	go serverPatrol(ctx, applPools, config.ApplierPatrol)
-
-	// 初始节点探测递送通道
-	// 通道两端皆为耗时操作，给与缓存自适应。
-	chpeer := make(chan *config.Peer, 1)
-
-	// 初始节点探测结束通知
-	chdone := make(chan struct{})
-
-	// 向外寻找 Finder
-	go ips.Finding(ctx, uint16(cfg.RemotePort), peers, cfg.PeerFindRange, chpeer, chdone)
-
-	// 接收寻找到的 Finder.Conn
-	go serverPeers(ctx, chpeer, chdone, findings, shortList)
-
-	// 候选池在线巡查
-	go serverShortlist(ctx, shortList, config.ShortlistPatrol)
-
-	// Finder巡查服务
-	go serverFinders(ctx, findings, shortList, config.FinderPatrol)
+	go serverBans(ctx, bans, node.BanQuery, node.BanAddto)
 
 	// 启动服务主进程
 	serviceListen(cfg.ServerPort)
@@ -240,17 +162,17 @@ func serviceListen(port int) {
 
 // 恶意节点监察服务
 // 检查连接服务器的是否为恶意节点清单里的。
-// 主进程传入连接节点地址的字符串表示，服务进程检查并返回：
+// 主服务进程传入连接节点地址的字符串表示，监察进程检查并返回：
 // banQuery:
 //   - 是：返回原值（有）
 //   - 否：返回空串（无）
 //   - 是，但超期，则移除后返回空串
 //
-// 主进程对节点判定恶意后传入添加，单向传递。
+// 主服务进程对节点判定恶意后传入添加，单向传递。
 // 注：
 // 除了用户外部配置的外，恶意节点仅为即时存在，并不存储。
 // 因为如果程序退出，新连接的节点已经变化。
-func serverBans(ctx context.Context, bans map[string]time.Time) {
+func serverBans(ctx context.Context, bans map[string]time.Time, banQuery, banAddto chan string) {
 	log.Println("Start peer banning server.")
 loop:
 	for {
@@ -280,143 +202,19 @@ loop:
 	log.Println("Peer banning server exit.")
 }
 
-// 应用端连接池巡查服务
-// 定时检查节点接入时间是否超期或是否在线，移除获取空间。
-// @ctx 当前上下文传递
-// @pool 应用节点连接池
-// @dur 巡查间隔时间（上次巡查完到本次开始）
-func serverPatrol(ctx context.Context, pools node.AppliersPool, dur time.Duration) {
-	// 支持的服务名清单
-	servlist := serviceNames(serviceList())
-	log.Println("Start client pools patrol server.")
-	// 友好：
-	// 初始可能并没有多少节点入池。
-	time.Sleep(time.Minute * 30)
-loop:
-	for {
-		select {
-		case <-ctx.Done():
-			break loop
-
-		case <-time.After(dur):
-			pools.Clean(ctx, servlist, config.ApplierExpired)
-		}
-	}
-	log.Println("applier pools patrol server exit.")
-}
-
-// 初始节点搜寻处理服务
-// 从 chin 接收 ips.Finding 找到的有效节点，创建连接并请求上线协助。
-// 接收上线协助收到的节点信息，测试节点在线情况、汇入候选池。
-// 当组网池满之后，通知 ips.Finding 搜寻结束，本服务也完成初始构造任务。
-// @ctx 全局上下文
-// @chin 外部节点搜寻服务递送通道
-// @done 搜寻结束通知
-// @pool 组网池
-// @list 候选池
-func serverPeers(ctx context.Context, chin <-chan *config.Peer, done chan struct{}, pool *node.Finders, list *node.Shortlist) {
-	log.Println("First peers help server start.")
-	defer close(done)
-loop:
-	for {
-		select {
-		case <-ctx.Done():
-			break loop
-
-		case peer := <-chin:
-			if pool.IsFulled() {
-				break loop
-			}
-			if err := findingsHelp(peer, 0, list, banAddto); err != nil {
-				log.Printf("[Error] First help from [%s] failed on %s.", peer, err)
-			}
-			// 触发组网池补充操作。
-			go finderReplenish(pool, list, banAddto)
-		}
-	}
-	log.Println("First peers help server exited.")
-}
-
-// Finder巡查服务
-// 定时检查组网池和候选池节点情况：
-// - 如果连接池成员充足，随机更新一个连接。
-// - 如果连接池成员不足，从候选池提取随机成员补充至满员。
-// - 随机对1个连接池成员分享节点信息（COMMAND_PEER）。
-// 注记：
-// 节点间交换信息融入候选池时，会先检查交换的节点的在线情况。
-// 从候选池取出节点补充组网池连接时，也会再测试一次对端是否在线。
-// 因此候选池不再设计单独的定时在线检查服务。
-// @ctx 当前上下文
-// @pool 待监测的组网池
-// @list 候选池（备用节点）
-// @dur 巡查时间间隔（完成->开始）
-func serverFinders(ctx context.Context, pool *node.Finders, list *node.Shortlist, dur time.Duration) {
-	log.Println("Start finders patrol server.")
-	// 友好：
-	// 初始可能并没有多少节点入池。
-	time.Sleep(time.Minute * 20)
-loop:
-	for {
-		select {
-		case <-ctx.Done():
-			break loop
-
-		case <-time.After(dur):
-			// 随机一成员分享
-			// 分享出错会简单忽略，打印出错消息后续继续。
-			if its := pool.Get(); its != nil {
-				if err := finderShare(its, list, banAddto, base.COMMAND_PEER); err != nil {
-					log.Println("[Error] Finder share peers failed:", err)
-				}
-			}
-			// 更新|补足（隐含分享）
-			if pool.IsFulled() {
-				finderUpdate(pool, list, banAddto)
-				break
-			}
-			finderReplenish(pool, list, banAddto)
-		}
-	}
-	log.Println("Finders patrol server exited.")
-}
-
-// 候选池巡查服务。
-// 主要执行候选池节点的在线检查，清理已下线节点。
-// @ctx 当前上下文
-// @list 候选池
-// @dur 巡查时间间隔（完成->开始）
-func serverShortlist(ctx context.Context, list *node.Shortlist, dur time.Duration) {
-	log.Println("Start shortlist online patrol server.")
-	// 友好：
-	// 初始可能并没有多少节点入池。
-	time.Sleep(time.Minute * 20)
-loop:
-	for {
-		select {
-		case <-ctx.Done():
-			break loop
-
-		case <-time.After(dur):
-			list.Clean(ctx)
-		}
-	}
-	log.Println("Shortlist patrol server exited.")
-}
-
-// 连接处理器（主）
+// 连接处理器
 // 处理任意对端节点进入的连接，对端初始发送的消息只能是如下两者：
 //
 // 1. 网络探测：
 // 探查本节点是否为Findings网络节点。回复后即结束，不接受进一步的操作。
 // 发送消息为文本，值为 base.CmdFindPing 变量的值。
 //
-// 2. 类型声明：
-// 指定自身需要的服务类型：findings | ...
-// 当指定类型为 findings 时，节点自身可能是 Finder，也可能是应用端需要获得 Findings 网络服务节点。
-// ... 为任意应用名称。
-// 类型声明为二进制格式，携带标识关键字和类型名。
+// 2. 节点声明：
+// 提供自己的基本信息。
+// - 应用自身所属的类别（findings|depots|blockchain|app）和名称。
+// - 应用所寻求的服务（find:net|stun:nat|assist:x|kind:app|peer:tcp）。
 //
-// 类型声明之后，即可开始后续的逻辑。
+// 节点声明之后，即可开始后续的逻辑。
 func handleConnect(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -444,9 +242,9 @@ func handleConnect(w http.ResponseWriter, r *http.Request) {
 			log.Println("[Error] write websocket:", err)
 			http.Error(w, "First message invalid", http.StatusInternalServerError)
 		}
-	// 类型声明
+	// 节点声明：
 	case websocket.BinaryMessage:
-		cmd, kind, err := base.DecodeProto(msg)
+		cmd, data, err := base.DecodeProto(msg)
 		if err != nil {
 			log.Println("[Error] decoding protobuf data:", err)
 			http.Error(w, "Decoding data failed", http.StatusInternalServerError)
@@ -457,665 +255,15 @@ func handleConnect(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "First command is bad", http.StatusInternalServerError)
 			break
 		}
-		kname, err := base.DecodeKind(kind)
+		kind, err := base.DecodeKind(data)
 		if err != nil {
 			log.Println("[Error] decode kind on", err)
 			http.Error(w, "Decode kind failed", http.StatusBadRequest)
 			break
 		}
 		// 按类别处理（顶层）
-		processOnKind(kname, conn, w)
+		node.ProcessOnKind(kind, conn, w)
 	}
-	// 结束通知
+	// 友好
 	conn.WriteMessage(websocket.TextMessage, []byte(base.CmdFindBye))
-}
-
-// 按目标类型的初始处理。
-// @kname 应用端名
-// @conn 当前TCP连接
-// @w 原始http写入器
-func processOnKind(kname *base.Kind, conn *websocket.Conn, w http.ResponseWriter) {
-	switch kname.Base {
-	// findings:
-	case base.BASEKIND_FINDINGS:
-		//
-
-	// others:
-	default:
-		//
-	}
-}
-
-// 通用处理器
-// handleConnect 的子处理器，仅用于代码分解。
-// @conn 当前连接
-// @w 原始http连接
-// @return 返回true表示正常处理，上层继续，否则上层结束
-func normalProcess(conn *websocket.Conn, w http.ResponseWriter) bool {
-	typ, msg, err := conn.ReadMessage()
-	if err != nil {
-		log.Println("[Error] reading message:", err)
-		return false
-	}
-	// 简单交互
-	if typ == websocket.TextMessage {
-		return simpleProcess(string(msg), conn, w)
-	}
-
-	// 服务交互
-	cmd, data, err := base.DecodeProto(msg)
-	if err != nil {
-		log.Println("[Error] decoding protobuf data:", err)
-		return false
-	}
-	switch cmd {
-	// 信息互助
-	// 组网池持久连接中的信息分享。
-	case base.COMMAND_PEER:
-		findingsPeers(data, w, conn, shortList, config.SomeFindings, base.COMMAND_PEER)
-
-	// 组网连接
-	// 无论如何都会分享信息，如果连接池已满则不加入组网池。
-	case base.COMMAND_JOIN:
-		findingsPeers(data, w, conn, shortList, config.SomeFindings, base.COMMAND_JOIN)
-
-		if findings.IsFulled() {
-			log.Printf("[%s] try to connect but pool fulled.\n", conn.RemoteAddr())
-			http.Error(w, "Too many connections", http.StatusTooManyRequests)
-			return false
-		}
-		its := node.NewWithAddr(conn.RemoteAddr())
-		if its != nil {
-			findings.Add(node.NewFinder(its, conn))
-		}
-
-	// 查询应用类型支持
-	case base.COMMAND_KIND:
-		msg := base.CmdKindFail
-
-		if supportKind(string(data)) {
-			msg = base.CmdKindOK
-		}
-		if err := conn.WriteMessage(websocket.TextMessage, []byte(msg)); err != nil {
-			log.Println("[Error] write websocket:", err)
-			return false
-		}
-
-	// 打洞协助（UDP）
-	case base.COMMAND_STUN:
-		kind, punch, err := stun.DecodePunch(data)
-		if err != nil {
-			log.Println("Error decode punches data.")
-			http.Error(w, "Punches data is invalid", http.StatusBadRequest)
-			return false
-		}
-		if !applPools.Supported(kind) {
-			log.Println("The client type is unsupported")
-			http.Error(w, "The client type is unsupported", http.StatusNotFound)
-			// 不支持，退出当前连接
-			return false
-		}
-		if err = servicePunching(conn, punch, applPools.AppliersUDP(kind), config.STUNPeerAmount); err != nil {
-			log.Println("stun server failed of", err)
-			http.Error(w, "stun assistance failed", http.StatusInternalServerError)
-		}
-
-	// NAT 侦测主服务
-	case base.COMMAND_STUN_CONE:
-
-	// NAT 侦测副服务
-	case base.COMMAND_STUN_SYM:
-
-	// NAT 生存期侦测
-	case base.COMMAND_STUN_LIVE:
-
-	// 应邀 NewHost
-	// data 为对端传递过来的 Hosto 已编码数据。
-	case base.COMMAND_STUN_HOST:
-		addr, sn, err := stun.DecodeHosto(data)
-		if err != nil {
-			log.Println("[Error] decode hosto on", err)
-			break
-		}
-		reply := make(chan bool)
-		stunNotice <- stun.NewNotice(stun.UDPSEND_NEWHOST, addr, sn, reply)
-
-		// 默认成功配合
-		msg := base.CmdStunHostOK
-
-		if ok := <-reply; !ok {
-			msg = base.CmdStunHostFail
-		}
-		if err = conn.WriteMessage(websocket.BinaryMessage, []byte(msg)); err != nil {
-			log.Println("[Error] write websocket message", err)
-		}
-		//! 不影响上层继续
-
-	// 消息不合规
-	default:
-		invalidMessage(w)
-	}
-	return true // 上级正常迭代
-}
-
-// 简单指令处理器
-// 仅负责 websocket.TextMessage 类消息的处理，无附带数据。
-// @msg 对端指令字符串
-// @conn 当前连接
-// @w 原始http连接
-// @return 返回true表示正常处理，上层继续，否则上层结束
-func simpleProcess(msg string, conn *websocket.Conn, w http.ResponseWriter) bool {
-	switch string(msg) {
-
-	// 可连接探测
-	case base.CmdFindPing:
-		err := conn.WriteMessage(websocket.TextMessage, []byte(base.CmdFindOK))
-		if err != nil {
-			log.Println("[Error] write websocket:", err)
-		}
-		return false
-
-	// 上线协助
-	// 临时连接，即时断开。
-	case base.CmdFindHelp:
-		if err := findingsPush(conn, shortList, config.PeersHelp, base.COMMAND_HELP); err != nil {
-			http.Error(w, "Some internal errors", http.StatusInternalServerError)
-		}
-		return false
-
-	// 服务类型集
-	// 通常为持续连接，后续会请求具体的帮助。
-	// 注：此为应用端请求。
-	case base.CmdFindKinds:
-		if err := findingsKinds(conn, serviceList(), base.COMMAND_SERVKINDS); err != nil {
-			log.Println("[Error] put service kinds:", err)
-		}
-
-	// 结束连接
-	case base.CmdFindBye:
-		node := findings.Dispose(conn)
-		if node != nil {
-			node.Quit()
-			log.Printf("The [%s] node was disposed.\n", node)
-		}
-		// 触发补充&检查
-		finderReplenish(findings, shortList, banAddto)
-		return false
-
-	// 不合格消息
-	default:
-		invalidMessage(w)
-	}
-
-	return true // 上层继续
-}
-
-// 发送本网节点集信息
-// @conn 当前连接
-// @pool 节点提取来源池（候选池）
-// @max 提取节点的最大数量
-func findingsPush(conn *websocket.Conn, pool *node.Shortlist, max int, cmd base.Command) error {
-	data, err := node.EncodePeers(
-		pool.List(max),
-	)
-	if err != nil {
-		log.Println("[Error] encoding findings peers.")
-		return err
-	}
-	data, err = base.EncodeProto(cmd, data)
-	if err != nil {
-		log.Println("[Error] encoding protodata.")
-		return err
-	}
-	if err = conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
-		log.Println("[Error] send peers message.")
-		return err
-	}
-	return nil
-}
-
-// 获取对端发送的节点集信息。
-// 解码对端的数据，检查测试节点集成员的在线情况，然后汇入候选池。
-// @conn 当前连接
-// @pool 有效节点汇入池（候选池）
-// @qban 禁闭查询通道
-func findingsGets(data []byte, pool *node.Shortlist, qban chan string) error {
-	nodes, err := node.DecodePeers(data)
-	if err != nil {
-		log.Println("[Error] decoding client peers data.")
-		return err
-	}
-	// 排除被禁闭的
-	nodes = filterBanned(nodes, qban)
-
-	if len(nodes) > 0 {
-		// 仅在线的节点入池。
-		pool.Adds(node.Onlines(nodes, 0)...)
-	}
-	return nil
-}
-
-// 服务器：双方交换节点信息
-// 这只是一个调用便利封装，conn写入应顶级执行。
-// @data 对端分享的节点清单数据
-// @w 原生连接符，仅用于写入错误提示
-// @conn 当前连接
-// @pool 有效节点获取&汇入池（候选池）
-// @amount 发送的信息量
-// @cmd 关联指令名
-func findingsPeers(data []byte, w http.ResponseWriter, conn *websocket.Conn, pool *node.Shortlist, amount int, cmd base.Command) {
-	go func() {
-		// 在线测试耗时，故独立协程
-		if err := findingsGets(data, pool, banQuery); err != nil {
-			http.Error(w, "Some internal errors", http.StatusInternalServerError)
-		}
-	}()
-	if err := findingsPush(conn, pool, amount, cmd); err != nil {
-		http.Error(w, "Some internal errors", http.StatusInternalServerError)
-	}
-}
-
-// 初始上线协助处理。
-// 向目标节点发送上线协助请求，然后接收对端的回应。
-// 回应的节点信息（在线探测后）会汇入到候选池。
-// @peer 目标节点
-// @long 拨号等待超时设置
-// @pool 汇入的节点池（候选池）
-func findingsHelp(peer *config.Peer, long time.Duration, pool *node.Shortlist, aban chan<- string) error {
-	if pool.IsFulled() {
-		return nil
-	}
-	conn, err := node.WebsocketDial(peer.IP, int(peer.Port), long)
-	if err != nil {
-		log.Println("[Error] first dial peer.")
-		return err
-	}
-	// 请求协助
-	if err = conn.WriteMessage(websocket.TextMessage, []byte(base.CmdFindHelp)); err != nil {
-		log.Println("[Error] first write help command.")
-		return err
-	}
-	// 接收协助
-	if err = receivePeers(conn, pool, base.COMMAND_HELP); err != nil {
-		log.Println("[Error] first receive help peer.")
-		aban <- conn.RemoteAddr().String()
-		return err
-	}
-	return nil
-}
-
-// 发送服务类型名集
-func findingsKinds(conn *websocket.Conn, list []*base.Kind, cmd base.Command) error {
-	data, err := base.EncodeServKinds(list)
-	if err != nil {
-		log.Println("[Error] encoding service kinds.")
-		return err
-	}
-	data, err = base.EncodeProto(cmd, data)
-	if err != nil {
-		log.Println("[Error] encoding protodata.")
-		return err
-	}
-	if err = conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
-		log.Println("[Error] send service kinds message.")
-		return err
-	}
-	return nil
-}
-
-//
-// 工具函数
-//-----------------------------------------------------------------------------
-//
-
-// 从候选池创建一个Finder
-// 会持续从候选池中提取节点，直到目标节点可用。
-// @pool 节点取用源（候选池）
-func createFinder(pool *node.Shortlist) (*node.Finder, error) {
-	for {
-		its := pool.Take()
-		if its == nil {
-			return nil, errors.New("the shortlist was empty")
-		}
-		conn, err := node.WebsocketDial(its.IP, its.Port, 0)
-
-		if err != nil {
-			log.Println("[Error] shortlist node was offline:", err)
-			continue
-		}
-		return node.NewFinder(its, conn), nil
-	}
-}
-
-// 组网池成员补充至满员。
-// 从候选池中取出节点，直到找到一个在线的对端。
-// @pool 组网池
-// @list 候选池
-func finderReplenish(pool *node.Finders, list *node.Shortlist, aban chan<- string) {
-	for {
-		if pool.IsFulled() {
-			break
-		}
-		new, err := createFinder(list)
-		if err != nil {
-			log.Println("[Error] create finder:", err)
-			break
-		}
-		if err = finderShare(new, list, aban, base.COMMAND_JOIN); err != nil {
-			log.Println("[Error] finder first share peers:", err)
-			continue
-		}
-		pool.Add(new)
-	}
-}
-
-// 组网池成员更新。
-// 从候选池提取一个在线成员创建连接，
-// 如果成功，则替换组网池内的一个随机成员。
-// 注意：
-// 不检查组网池成员是否已满。
-// 会即时发送组网消息，交换分享彼此候选池的部分节点信息。
-// @pool 组网池
-// @list 候选池
-// @aban 禁闭添加通道
-// @return 更新是否出错
-func finderUpdate(pool *node.Finders, list *node.Shortlist, aban chan<- string) error {
-	var new *node.Finder
-	var err error
-	for {
-		new, err = createFinder(list)
-		if err != nil {
-			log.Println("[Error] create finder.")
-			return err
-		}
-		if err = finderShare(new, list, aban, base.COMMAND_JOIN); err != nil {
-			log.Println("[Error] finder first share peers.")
-			continue
-		}
-		break
-	}
-	// 先随机移除
-	del := pool.Take()
-	if del != nil {
-		del.Conn.WriteMessage(websocket.TextMessage, []byte(base.CmdFindBye))
-		del.Conn.Close()
-	}
-	return pool.Add(new)
-}
-
-// 组网池成员信息分享
-// - 向对端发送分享指令及其数据。
-// - 接收对端回应的分享数据。
-// @finder 组网节点
-// @list 分享来源（候选池）
-// @aban 禁闭通知通道
-// @cmd 分享类指令（COMMAND_JOIN|COMMAND_PEER）
-func finderShare(finder *node.Finder, list *node.Shortlist, aban chan<- string, cmd base.Command) error {
-	var err error
-	// 分享节点信息
-	if err = findingsPush(finder.Conn, list, config.SomeFindings, cmd); err != nil {
-		return err
-	}
-	// 接收分享回馈
-	if err = receivePeers(finder.Conn, list, cmd); err != nil {
-		log.Println("[Error] receive shared peers.")
-		// 加入黑名单
-		// 理由：在线且可正常接收数据，但无法提供正常的服务。
-		aban <- finder.Conn.RemoteAddr().String()
-	}
-	return err
-}
-
-// 应用端打洞协助（多目标）
-// @conn 请求源客户端连接
-// @punch 源客户端打洞信息包
-// @pools NAT 节点池组（0:Pub/FullC; 1:RC; 2:P-RC; 3:Sym）
-// @amount 尝试协助互通的节点数上限
-func servicePunching(conn *websocket.Conn, punch *stun.Peer, pools []*node.Appliers, amount int) error {
-	if pools == nil {
-		return errAppliersEmpty
-	}
-	// 可能重复，因此标记
-	pass := make(map[*websocket.Conn]bool)
-
-	for n := 0; n < amount; n++ {
-		client, err := punchingPeer(conn, punch, pools, config.STUNTryMax)
-
-		// 条件不具备，无需再尝试
-		if err != nil {
-			return err
-		}
-		if pass[client.Conn] {
-			continue
-		}
-		pass[client.Conn] = true
-	}
-	return nil
-}
-
-// 应用端打洞协助（单次）
-// 参考对端的NAT类型，匹配恰当的互连节点，为它们提供信令服务：
-// 向彼此写入对端的信息（同时指明打洞方向）。
-// @conn 请求源客户端连接
-// @punch 源客户端打洞信息包
-// @pools NAT 节点池组（0:Pub/FullC; 1:RC; 2:P-RC; 3:Sym）
-// @max 失败再尝试次数
-// @return 成功写入打洞信息包的匹配端
-func punchingPeer(conn *websocket.Conn, punch *stun.Peer, pools []*node.Appliers, max int) (*node.Applier, error) {
-	var err error
-	var dir *stun.PunchDir
-	var peer *node.Applier
-
-	for n := 0; n < max; n++ {
-		peer = punchMatched(punch.Level, pools)
-
-		if peer == nil {
-			return nil, errApplierNotFound
-		}
-		punch2 := peer.Peer
-
-		// dir[0] punch
-		// dir[1] punch2
-		if dir, err = stun.PunchingDir(punch, punch2); err != nil {
-			return nil, err
-		}
-		// => punch2
-		// 成功即退出，否则尝试新的匹配
-		if err = punchingPush(peer.Conn, dir[1], punch2, base.COMMAND_PUNCH); err == nil {
-			break
-		}
-	}
-	if err != nil {
-		return nil, err
-	}
-	// => punch
-	return peer, punchingPush(conn, dir[0], punch, base.COMMAND_PUNCH)
-}
-
-// 向应用端连接写入打洞信息包
-// 信息包依然为两级封装，内层编码需用 stun.DecodePunch 解码。
-// @conn 应用端连接
-// @punch 打洞信息包
-// @cmd 顶层封装类别（应为 COMMAND_PUNCH）
-// @return 返回错误通常表示传输失败（对端不在线）
-func punchingPush(conn *websocket.Conn, dir string, punch *stun.Peer, cmd base.Command) error {
-	// 内层编码
-	data, err := stun.EncodePunch(dir, punch)
-	if err != nil {
-		log.Println("[Error] punch data encode.")
-		return err
-	}
-	// 顶层编码
-	data, err = base.EncodeProto(cmd, data)
-	if err != nil {
-		log.Println("[Error] punch protobuf encode.")
-		return err
-	}
-	// 传送到对端
-	if err = conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
-		log.Println("[Error] send punch's data.")
-	}
-	return err
-}
-
-// 返回提供的服务类型名称集。
-// 不符合格式（kind:name）的名称会被简单忽略。
-func serviceList() []*base.Kind {
-	list := make([]*base.Kind, 0, len(stakePool))
-
-	for name := range stakePool {
-		// kind:name
-		kn, err := base.ParseKind(name)
-
-		if err != nil {
-			log.Println("[Error] parse kind on", err)
-			continue
-		}
-		list = append(list, kn)
-	}
-	return list
-}
-
-// 创建服务类型名称集。
-// 将 base.Kind 的分解形式合成为 kind:name 字符串。
-func serviceNames(list []*base.Kind) []string {
-	names := make([]string, len(list))
-
-	for i, kn := range list {
-		names[i] = base.KindName(kn)
-	}
-	return names
-}
-
-// 查询服务类型的受益账号。
-// @name 应用服务的类型名
-// @return 服务器相应的收益地址（区块链账号）
-func serviceStake(name string) string {
-	return stakePool[name]
-}
-
-// 获取一个打洞匹配节点
-// 传递一方的NAT层级为level，找到与之匹配的另一个节点。
-// 匹配遵循资源充分利用原则：
-// level:
-// - Sym:       Pub/FullC
-// - P-RC:      RC > P-RC > Pub/FullC
-// - RC:        P-RC > RC > Pub/FullC
-// - Pub/FullC: Sym > P-RC > RC > Pub/FullC
-// pools:
-// - [0]: Pub/FullC
-// - [1]: RC
-// - [2]: P-RC
-// - [3]: Sym
-// 注：
-// 返回nil表示没有匹配的节点，通常是因为应用端节点池为空所致。
-func punchMatched(level stun.NatLevel, pools []*node.Appliers) *node.Applier {
-	// Pub/FullC
-	_, c0 := pools[0].Get()
-
-	if level == stun.NAT_LEVEL_SYM {
-		return c0
-	}
-	_, c1 := pools[1].Get() // RC
-	_, c2 := pools[2].Get() // P-RC
-	_, c3 := pools[3].Get() // Sym
-
-	switch level {
-	case stun.NAT_LEVEL_PRC:
-		return increaseRandomNode(c0, c2, c1)
-	case stun.NAT_LEVEL_RC:
-		return increaseRandomNode(c0, c1, c2)
-	case stun.NAT_LEVEL_NULL:
-		return increaseRandomNode(c0, c1, c2, c3)
-	}
-	return nil
-}
-
-// 递增法随机节点获取
-// 权重值按参数顺序递增，从1开始。
-// 池中添加实参成员，随着权重增加，重复添加（增加高权重项的数量）。
-// 最终取一个随机位置值。
-func increaseRandomNode(cs ...*node.Applier) *node.Applier {
-	size := increaseSum(1, 1, len(cs))
-	pool := make([]*node.Applier, 0, size)
-
-	for i, its := range cs {
-		if its != nil {
-			// 重复量逐渐增加
-			for n := 0; n < i+1; n++ {
-				pool = append(pool, its)
-			}
-		}
-	}
-	size = len(pool)
-	if size == 0 {
-		return nil
-	}
-	// 随机数列的随机位置
-	// i: [random...][rand-id]
-	return pool[rand.Perm(size)[rand.Intn(size)]]
-}
-
-// 是否支持目标类型的服务。
-func supportKind(name string) bool {
-	if _, ok := stakePool[name]; ok {
-		return true
-	}
-	return false
-}
-
-// 接收对端分享的节点信息。
-// 此为客户端向服务器发送请求信息指令后，接收对端的数据。
-// @conn 目标连接
-// @pool 待汇入目标（候选池）
-// @cmdx 欲匹配的消息指令
-func receivePeers(conn *websocket.Conn, pool *node.Shortlist, cmdx base.Command) error {
-	typ, msg, err := conn.ReadMessage()
-	if err != nil {
-		return err
-	}
-	if typ != websocket.BinaryMessage {
-		return errors.New("receive shared peers datatype invalid")
-	}
-	cmd, data, err := base.DecodeProto(msg)
-
-	if err != nil {
-		return err
-	}
-	if cmd != cmdx {
-		return errors.New("decoded protodata command is invalid")
-	}
-	return findingsGets(data, pool, banQuery)
-}
-
-// 禁闭节点过滤
-// @nodes 原节点集
-// @ban 禁闭查询通道
-// @return 未禁闭的节点集
-func filterBanned(nodes []*node.Node, ban chan string) []*node.Node {
-	buf := make([]*node.Node, 0, len(nodes))
-
-	for _, node := range nodes {
-		if ip := <-ban; ip != "" {
-			log.Println("[Warning] The banned ip: ", ip)
-			continue
-		}
-		buf = append(buf, node)
-	}
-	return buf
-}
-
-// 无效消息通知&日志记录
-func invalidMessage(w http.ResponseWriter) {
-	log.Println("The message sent by the client is illegal.")
-	http.Error(w, "The message is illegal", http.StatusMisdirectedRequest)
-}
-
-// 递增等差数列求和
-// @a 起始值
-// @d 等差值
-// @n 项数
-// @return 求和值
-func increaseSum(a, d, n int) int {
-	return n * (2*a + (n-1)*d) / 2
 }

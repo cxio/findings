@@ -7,10 +7,17 @@ message Proto {
     bytes data = 2; // 关联数据（待解码）
 }
 
-// 支持的服务类型
+// 节点声明类别
+// seek: 寻求的服务，仅在客户端向服务器请求时有用。
+// - find:net 参与组网，仅适用 findings 类型
+// - stun:nat 请求NAT探测和打洞协助，任意类型适用
+// - assist:x 寻求上线协助（获取Finder节点）
+// - kind:app 获取服务器支持的应用名清单
+// - peer:tcp 登记支持TCP的可直连服务器（后续提供信息）
 message Kind {
     string base = 1;    // 基础名称（depots|blockchain|app|findings）
     string name = 2;    // 具体的服务名称（任意……）
+    string seek = 3;    // 寻求的服务（find:net|stun:nat|assist:x|kind:app|peer:tcp）
 }
 
 // 服务类型名集

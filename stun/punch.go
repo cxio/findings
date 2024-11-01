@@ -4,12 +4,27 @@ import (
 	"errors"
 	"net"
 	"net/netip"
-	"strings"
 
+	"github.com/cxio/findings/base"
 	"google.golang.org/protobuf/proto"
 )
 
-// Peer 基础节点信息
+// Kind 应用类型名
+type Kind struct {
+	Base string // 基础类别
+	Name string // 应用名称
+}
+
+// NewKind 从基础 base.Kind 创建。
+// 注：略过其中的的 seek 字段（不需要）。
+func NewKind(kind *base.Kind) *Kind {
+	return &Kind{
+		Base: kind.Base,
+		Name: kind.Name,
+	}
+}
+
+// Peer 节点信息
 type Peer struct {
 	IP    netip.Addr // 公网IP
 	Port  int        // 公网监听/通讯端口
@@ -27,31 +42,6 @@ func (p *Peer) UDPAddr() *net.UDPAddr {
 	return &net.UDPAddr{
 		IP:   p.IP.AsSlice(),
 		Port: p.Port,
-	}
-}
-
-// UDPAddr 构造为UDP地址。
-func (p *Peer) TCPAddr() *net.TCPAddr {
-	return &net.TCPAddr{
-		IP:   p.IP.AsSlice(),
-		Port: p.Port,
-	}
-}
-
-// LinkPeer 关联节点
-// 提供TCP监听地址和端口，或者UDP打洞需要的信息。
-// 注意：
-// Peer中的公网IP和端口，需与网络类型（tcp|udp）相对应。
-type LinkPeer struct {
-	*Peer          // 基础信息
-	Network string // 支持的网络类型（tcp|udp）
-}
-
-// NewLinkPeer 创建一个应用端
-func NewLinkPeer(net string, peer *Peer) *LinkPeer {
-	return &LinkPeer{
-		Peer:    peer,
-		Network: strings.ToLower(net),
 	}
 }
 
@@ -119,16 +109,17 @@ func PunchingDir(p1, p2 *Peer) (*PunchDir, error) {
 
 // EncodeAppinfo 应用端节点信息
 // 用于应用端把自己的信息编码发送到服务器，寻求打洞协助（UDP)或注册自己的节点（TCP）。
-// @kind 应用类型名
+// @base 基础类型
+// @name 应用名
 // @app 应用端信息包
-func EncodeAppinfo(kind string, app *LinkPeer) ([]byte, error) {
+func EncodeAppinfo(kind *Kind, app *Peer) ([]byte, error) {
 	buf := &Appinfo{
-		Kind:    kind,
-		Network: app.Network,
-		Ip:      app.IP.AsSlice(),
-		Port:    int32(app.Port),
-		Level:   int32(app.Level),
-		Extra:   app.Extra,
+		Base:  kind.Base,
+		Name:  kind.Name,
+		Ip:    app.IP.AsSlice(),
+		Port:  int32(app.Port),
+		Level: int32(app.Level),
+		Extra: app.Extra,
 	}
 	return proto.Marshal(buf)
 }
@@ -136,18 +127,22 @@ func EncodeAppinfo(kind string, app *LinkPeer) ([]byte, error) {
 // DecodeAppinfo 解码打洞信息包
 // @data 网络传输过来的已编码数据
 // @return1 应用类型名
-// @return2 应用端信息包
-func DecodeAppinfo(data []byte) (string, *LinkPeer, error) {
+// @return2 应用端节点
+func DecodeAppinfo(data []byte) (*Kind, *Peer, error) {
 	buf := &Appinfo{}
 
 	if err := proto.Unmarshal(data, buf); err != nil {
-		return "", nil, err
+		return nil, nil, err
 	}
 	addr, ok := netip.AddrFromSlice(buf.Ip)
 	if !ok {
-		return "", nil, ErrParseIP
+		return nil, nil, ErrParseIP
 	}
-	return buf.Kind, NewLinkPeer(buf.Network, NewPeer(addr, int(buf.Port), NatLevel(buf.Level), buf.Extra)), nil
+	kind := Kind{
+		Base: buf.Base,
+		Name: buf.Name,
+	}
+	return &kind, NewPeer(addr, int(buf.Port), NatLevel(buf.Level), buf.Extra), nil
 }
 
 // EncodePunch 编码打洞信息

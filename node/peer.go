@@ -1,11 +1,39 @@
 package node
 
-import "google.golang.org/protobuf/proto"
+import (
+	"errors"
+	"net/netip"
 
-// EncodePeers 编码节点数据
-// 内部实际上是使用 Peer 的 proto 定义。
-// 注记：
-// 结果数据中包含了封装切片的父结构 Peers{[]*Peer}。
+	"google.golang.org/protobuf/proto"
+)
+
+// IP 解析错误。
+var ErrParseIP = errors.New("parse ip bytes failed")
+
+// EncodePeer 编码节点信息
+func EncodePeer(node *Node) ([]byte, error) {
+	buf := &Peer{
+		Ip:   node.IP.AsSlice(),
+		Port: int32(node.Port),
+	}
+	return proto.Marshal(buf)
+}
+
+// DecodePeer 解码节点信息
+func DecodePeer(data []byte) (*Node, error) {
+	buf := &Peer{}
+
+	if err := proto.Unmarshal(data, buf); err != nil {
+		return nil, err
+	}
+	addr, ok := netip.AddrFromSlice(buf.Ip)
+	if !ok {
+		return nil, ErrParseIP
+	}
+	return New(addr, int(buf.Port)), nil
+}
+
+// EncodePeers 编码节点集数据
 func EncodePeers(nodes []*Node) ([]byte, error) {
 	buf := &PeerList{
 		Peers: toPeers(nodes),
@@ -13,14 +41,13 @@ func EncodePeers(nodes []*Node) ([]byte, error) {
 	return proto.Marshal(buf)
 }
 
-// DecodePeers 解码节点数据
-// 内部将封装在Peers中的切片数据提取出来。
-// 注：data 为 EncodePeers 编码的数据。
+// DecodePeers 解码节点集数据
+// @data EncodePeers编码的数据。
 func DecodePeers(data []byte) ([]*Node, error) {
-	peerlist := &PeerList{}
+	plist := &PeerList{}
 
-	if err := proto.Unmarshal(data, peerlist); err != nil {
+	if err := proto.Unmarshal(data, plist); err != nil {
 		return nil, err
 	}
-	return toNodes(peerlist.Peers), nil
+	return toNodes(plist.Peers), nil
 }

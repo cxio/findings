@@ -6,10 +6,12 @@
     udp_living: 7181,       // 本地 NAT 生命期探测监听端口
     log_dir: "logs",        // 应用程序日志存放根目录
     findings: 10,           // 同时连接的本类节点数
-    peers_help: 8,          // 上线帮助发送条目数。私有Findings针对自己的应用可设置较大的值
+    peers_help: 8,          // 上线协助发送条目数。局域Findings可能设置较大的值
     applications: 500,      // 每种应用可同时连接的节点数量上限
     shortlist: 40,          // 本类节点候选名单长度
     buffer_size: 1024,      // 连接读写缓冲区大小
     peers_range: 200,       // 节点寻找的范围（基于起点的半径）
-    stun_peer_amount: 6     // 打洞协助连接节点数
+    stun_peer_amount: 6,    // 打洞协助连接节点数
+    stun_living: true,      // 是否启动 STUN:Live 服务（NAT生命期探测）
+    stun_client: true       // 是否需要作为客户端的NAT层级&生存期探测
 }

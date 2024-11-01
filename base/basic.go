@@ -18,12 +18,25 @@ import (
 // KindSepartor 基础名:具体名的分隔符
 const KindSepartor = ":"
 
-// 基础类型名定义。
+// 应用所属的类别。
+// 此为应用端向服务器发送的最初数据，用于声明自己。
 const (
-	BASEKIND_FINDINGS   = "findings"   // Findings 网络节点
-	BASEKIND_DEPOTS     = "depots"     // Depots 数据驿站节点（archives|blockqs）
-	BASEKIND_BLOCKCHAIN = "blockchain" // 区块链类型应用
-	BASEKIND_APP        = "app"        // 非区块链类普通应用
+	KIND_FINDINGS   = "findings"   // 类别：Findings 网络节点
+	KIND_DEPOTS     = "depots"     // 类别：Depots 数据驿站节点（archives|blockqs）
+	KIND_BLOCKCHAIN = "blockchain" // 类别：区块链类型应用
+	KIND_APP        = "app"        // 类别：非区块链类普通应用
+)
+
+// 寻求的服务类型
+// SEEK_ASSISTX: 服务器向客户端发送一个Peer集合。Command: COMMAND_HELP
+// SEEK_KINDAPP: 服务器发送一个Kind集合。Command: COMMAND_KINDLIST
+// SEEK_PEERTCP: 如果失败，服务器向客户端回应一个错误消息，否则仅为一个CmdFindBye。
+const (
+	SEEK_FINDNET = "find:net" // 寻求：Findings组网
+	SEEK_ASSISTX = "assist:x" // 寻求：上线协助
+	SEEK_APPSERV = "stun:nat" // 寻求：应用服务（NAT探测&打洞协助）
+	SEEK_KINDAPP = "kind:app" // 寻求：应用支持清单
+	SEEK_PEERTCP = "peer:tcp" // 寻求：登记TCP服务器（可直连）
 )
 
 // ErrBaseKind 基础类型名错误。
@@ -34,17 +47,18 @@ var ErrKindName = errors.New("the kind:name not matched")
 
 // 基础类型约束
 var baseKinds = map[string]bool{
-	BASEKIND_FINDINGS:   true,
-	BASEKIND_DEPOTS:     true,
-	BASEKIND_BLOCKCHAIN: true,
-	BASEKIND_APP:        true,
+	KIND_FINDINGS:   true,
+	KIND_DEPOTS:     true,
+	KIND_BLOCKCHAIN: true,
+	KIND_APP:        true,
 }
 
-// ParseKind 从普通名称解析为一个Kind
+// Name2Kind 从普通名称解析为一个Kind
 // 如果名称不符合规范（kind:name），则返回nil。
 // 如果基础名称不符合规范，也无效，返回nil。
 // @kname 冒号分隔的全名称
-func ParseKind(name string) (*Kind, error) {
+// @seek 请求类别，在此为占位符（可传递空串）
+func Name2Kind(name, seek string) (*Kind, error) {
 	n2 := strings.SplitN(name, KindSepartor, 2)
 
 	if len(n2) < 2 {
@@ -53,27 +67,27 @@ func ParseKind(name string) (*Kind, error) {
 	if !baseKinds[n2[0]] {
 		return nil, ErrBaseKind
 	}
-	return &Kind{Base: n2[0], Name: n2[1]}, nil
+	return &Kind{Base: n2[0], Name: n2[1], Seek: seek}, nil
 }
 
 // KindName 创建类型的全名称
-func KindName(kname *Kind) string {
-	return kname.Base + KindSepartor + kname.Name
+func KindName(base, name string) string {
+	return base + KindSepartor + name
 }
 
 // EncodeKind 编码服务类型名
 // 会自动检查基础类别名称是否合法。
-// @base 基础名（depots|blockchain|app|""）
+// @base 基础名（depots|blockchain|app|findings）
 // @name 具体名称
-// 注记：
-// base 为空时，name 仅适用 findings 名称。
-func EncodeKind(base, name string) ([]byte, error) {
+// @seek 寻求的帮助（组网：finder | 应用服务：applier | 上线协助：assist）
+func EncodeKind(base, name, seek string) ([]byte, error) {
 	if !baseKinds[base] {
 		return nil, ErrBaseKind
 	}
 	buf := &Kind{
 		Base: base,
 		Name: name,
+		Seek: seek,
 	}
 	return proto.Marshal(buf)
 }
@@ -135,7 +149,7 @@ func EncodeProto(name Command, data []byte) ([]byte, error) {
 	return proto.Marshal(its)
 }
 
-// EncodeProto 数据解码
+// DecodeProto 数据解码
 // @data 初始接收的proto编码字节流
 // @return1 数据类型
 // @return2 该类型的编码数据（proto）

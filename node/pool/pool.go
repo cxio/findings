@@ -20,7 +20,6 @@ import (
 	"math/rand"
 	"sync"
 
-	"golang.org/x/exp/constraints"
 	"golang.org/x/tools/container/intsets"
 )
 
@@ -28,27 +27,16 @@ var (
 	// 池满员错误
 	ErrPoolFulled = errors.New("the pool was fulled")
 
-	// 池成员下标错误
-	ErrPoolIndex = errors.New("the pool index failed")
-
 	// 无匹配错误
 	ErrMatched = errors.New("not matched item in pool")
 )
-
-// Item 键值条目
-// 主要用于返回池内成员的引用，包含索引键（下标）。
-// 含键方便可能需要的移除操作。
-type Item[T any] struct {
-	Key   int // 成员键
-	Value *T  // 成员值
-}
 
 // Pool 泛型池。
 // 成员约束为指针类型，避免申请过大的初始空间。
 // 删除操作仅对目标位置置空，同时用 free 记录被移除成员的位置，
 // 因此非常高效。
 type Pool[T any] struct {
-	nodes  []*T       // 存储区
+	queue  []*T       // 存储区
 	max    int        // 存储量上限
 	cursor int        // 清理点位置游标
 	mu     sync.Mutex // 同步器
@@ -58,7 +46,7 @@ type Pool[T any] struct {
 // @size 池的最大容量
 func NewPool[T any](size int) *Pool[T] {
 	return &Pool[T]{
-		nodes: make([]*T, 0, size),
+		queue: make([]*T, 0, size),
 		max:   size,
 	}
 }
@@ -103,7 +91,7 @@ func Remove[T any](p *Pool[T], i int) *T {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	sz := len(p.nodes)
+	sz := len(p.queue)
 
 	if i >= sz || sz == 0 {
 		return nil
@@ -122,7 +110,7 @@ func Removes[T any](p *Pool[T], i, size int) []*T {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	sz := len(p.nodes)
+	sz := len(p.queue)
 	if i >= sz {
 		return nil
 	}
@@ -147,7 +135,7 @@ func Dispose[T any](p *Pool[T], test func(*T) bool) *T {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	for i, its := range p.nodes {
+	for i, its := range p.queue {
 		if test(its) {
 			return remove(p, i)
 		}
@@ -157,21 +145,42 @@ func Dispose[T any](p *Pool[T], test func(*T) bool) *T {
 
 // Get 引用一个成员。
 // 获取一个随机成员的引用（不会从池中移除）。
-// 如果池为空，返回-1和nil。
+// 如果池为空，返回nil。
 // @p 目标池
 // @return1 成员的位置
 // @return2 一个随机成员
-func Get[T any](p *Pool[T]) (int, *T) {
+func Get[T any](p *Pool[T]) *T {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	sz := len(p.nodes)
+	sz := len(p.queue)
 	if sz == 0 {
-		return -1, nil
+		return nil
 	}
-	i := rand.Intn(sz)
+	return p.queue[rand.Intn(sz)]
+}
 
-	return i, p.nodes[i]
+// List 获取成员序列。
+// 如果池中成员数不足，则返回仅有的部分。传递count为负值表示全部成员。
+// 返回的是成员的引用，顺序已随机化。
+// @p 目标池
+// @count 获取数量
+// @return 成员清单（引用）
+func List[T any](p *Pool[T], count int) []*T {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	sz := len(p.queue)
+	if sz == 0 || count == 0 {
+		return nil
+	}
+	ii := Indexes(sz, count)
+	list := make([]*T, len(ii))
+
+	for i, x := range ii {
+		list[i] = p.queue[x]
+	}
+	return list
 }
 
 // Take 提取一个成员。
@@ -181,7 +190,7 @@ func Take[T any](p *Pool[T]) *T {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	sz := len(p.nodes)
+	sz := len(p.queue)
 	if sz == 0 {
 		return nil
 	}
@@ -199,75 +208,19 @@ func Takes[T any](p *Pool[T], count int) []*T {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if len(p.nodes) == 0 || count == 0 {
+	if len(p.queue) == 0 || count == 0 {
 		return nil
 	}
-	if count < 0 || count > len(p.nodes) {
+	if count < 0 || count > len(p.queue) {
 		return random(clear(p))
 	}
 	list := make([]*T, count)
 
 	for i := 0; i < count; i++ {
 		// 长度在变
-		list[i] = remove(p, rand.Intn(len(p.nodes)))
+		list[i] = remove(p, rand.Intn(len(p.queue)))
 	}
 	return list
-}
-
-// List 获取成员序列。
-// 如果池中成员数不足，则返回仅有的部分。传递count为负值表示全部成员。
-// 返回的是成员的引用，顺序已随机化。
-// @p 目标池
-// @count 获取数量
-// @return 成员清单（引用）
-func List[T any](p *Pool[T], count int) []*T {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if len(p.nodes) == 0 || count == 0 {
-		return nil
-	}
-	ii := indexes(p.nodes, count)
-	list := make([]*T, len(ii))
-
-	for i, x := range ii {
-		list[i] = p.nodes[x]
-	}
-	return list
-}
-
-// Items 返回池内条目（含下标）。
-// 如果池中成员数不足，则返回仅有的部分。传递count为负值表示全部成员。
-// 返回的是成员的引用，顺序已随机化。
-// @p 目标池
-// @count 获取数量
-// @return 条目清单（Key:Value）
-func Items[T any](p *Pool[T], count int) []*Item[T] {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	sz := len(p.nodes)
-	if sz == 0 || count == 0 {
-		return nil
-	}
-	if count < 0 || count > sz {
-		count = sz
-	}
-	buf := make([]*Item[T], count)
-
-	for i := 0; i < count; i++ {
-		buf[i] = &Item[T]{Key: i, Value: p.nodes[i]}
-	}
-	return buf
-}
-
-// Drop 提取全部成员。
-// 池缓存会被清空，清理下标重置。但其它设定保留。
-func Drop[T any](p *Pool[T]) []*T {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	return clear(p)
 }
 
 // Size 返回池的大小。
@@ -275,7 +228,7 @@ func Size[T any](p *Pool[T]) int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	return len(p.nodes)
+	return len(p.queue)
 }
 
 // MaxSize 返回此大小限制。
@@ -292,11 +245,53 @@ func IsFulled[T any](p *Pool[T]) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	return len(p.nodes) >= p.max
+	return len(p.queue) >= p.max
+}
+
+// Drop 提取全部成员。
+// 池缓存会被清空，清理下标重置。但其它设定保留。
+func Drop[T any](p *Pool[T]) []*T {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return clear(p)
+}
+
+// Cleans 多清理。
+// 按游标步进检查清理多个成员，
+// 清理时锁定池，测试函数应当即时高效，不占用过多时间。
+// 通常只是测试池成员的时间有效性。
+// 注意：
+// 如果检查到末尾还没有达到计量，则折返头部检查。
+// @p 目标池
+// @count 清理测试数量
+// @test 清除判断函数，返回true时清除
+// @return 清理移除的成员集
+func Cleans[T any](p *Pool[T], count int, test func(*T) bool) []*T {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	var dels []*T
+	sz := len(p.queue)
+	i := p.cursor % sz
+
+	for n := 0; n < count; n++ {
+		// 移除时，
+		// 末尾成员移入覆盖，因此游标不动。
+		if test(p.queue[i]) {
+			dels = append(dels, remove(p, i))
+		} else {
+			i = (i + 1) % sz
+		}
+	}
+	p.cursor = i
+
+	return dels
 }
 
 // Clean 清理目标池。
 // 逐个迭代池内成员，根据清理函数判断并移除池成员。
+// 注意：仅在上一个成员完成测试之后，才开始下一个测试。
 // 返回的成员用于可能的资源回收。
 //
 // 说明：
@@ -304,8 +299,7 @@ func IsFulled[T any](p *Pool[T]) bool {
 //     这样就不会导致长时间池锁定。
 //   - 也因此，如果测试期间其它进程向池添加成员导致池满，则测试成员将无法回插。
 //     此时会返回测试成员本身和 ErrPoolFulled 错误。
-//   - 因为非锁时期其它操作可能对池造成影响，比如添加、移除等，
-//     因此本清理策略无法保证100%的完整性。
+//   - 因为非锁时期其它操作可能对池造成影响（比如删除），所以本清理策略不保证100%完整。
 //
 // @ctx 上下文
 // @p 目标池
@@ -316,18 +310,18 @@ func Clean[T any](ctx context.Context, p *Pool[T], test func(*T) bool) <-chan *T
 
 	go func() {
 		defer close(ch)
-
+	loop:
 		for n := 0; n < Size(p); n++ {
 			select {
 			case <-ctx.Done():
-				return
+				break loop
 			default:
-				its, err := check(p, getCursor(p), test)
+				its, err := check(p, test)
 				if its == nil {
 					continue
 				}
 				if err != nil {
-					log.Println("[Warning] clean pool on", err)
+					log.Printf("Clean pool error on %s with [%s].", err, its)
 				}
 				ch <- its
 			}
@@ -336,42 +330,41 @@ func Clean[T any](ctx context.Context, p *Pool[T], test func(*T) bool) <-chan *T
 	return ch
 }
 
-// CleanN 批量清理。
-// 一次提出N个成员并行测试，以提高测试的效率。
-// 单批清理速度取决于最慢的那个成员的测试。
-// 对于网络连接类测试，注意n值不宜太大避免资源占用限制。
+// CleanN 并发批量清理。
+// 一次最多创建N个并发测试进程，提高测试效率。
+// 注意回插并不按照取出时的顺序，先结束测试的会先回插。
+// 对于网络连接类测试，n值不宜太大。
 // 使用：适用于较大的池。
 // @ctx 上下文
 // @p 目标池
 // @n 一次提取的数量
 // @test 清除判断函数，返回true时清除
 // @return 移出成员集的递送通道
-func CleanN[T any](ctx context.Context, p *Pool[T], n int, test func(*T) bool) <-chan []*T {
-	ch := make(chan []*T, 1)
-	sz := Size(p)
+func CleanN[T any](ctx context.Context, p *Pool[T], n int, test func(*T) bool) <-chan *T {
+	ch := make(chan *T, 1)
+	cnt := make(chan struct{}, n)
 
-	max := sz / n
-	if sz%n != 0 {
-		max++
-	}
 	go func() {
 		defer close(ch)
+		defer close(cnt)
 
-		for n := 0; n < max; n++ {
+		var wg sync.WaitGroup
+	loop:
+		for n := 0; n < Size(p); n++ {
 			select {
 			case <-ctx.Done():
-				return
-			default:
-				list, err := checks(p, getCursor(p), n, test)
-				if len(list) == 0 {
-					continue
-				}
-				if err != nil {
-					log.Println("[Warning] clean pool on", err)
-				}
-				ch <- list
+				break loop
+
+			case cnt <- struct{}{}:
+				wg.Add(1)
+
+				go func() {
+					defer wg.Done()
+					checkx(p, test, cnt, ch)
+				}()
 			}
 		}
+		wg.Wait()
 	}()
 	return ch
 }
@@ -380,65 +373,35 @@ func CleanN[T any](ctx context.Context, p *Pool[T], n int, test func(*T) bool) <
 // 清理专用
 //////////////////////////////////////////////////////////////////////////////
 
-// 获取清理游标。
-func getCursor[T any](p *Pool[T]) int {
+// 提取清理位置的成员。
+func cleanTake[T any](p *Pool[T]) *T {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	return p.cursor
+	return remove(p, p.cursor)
 }
 
-// 锁定插入。
-// 采用高效插入方式：与末尾成员置换。
-// 如果池满或位置超出池大小，则无法插入，返回错误。
-// - 池满无法插入，返回池满错误 ErrPoolFulled。
-// - 指定位置超出池大小，返回下标错误 ErrPoolIndex。
+// 回插成员到清理位置。
+// 算法：与末尾成员置换，成功后移动清理游标。
+// 如果池满或位置超出池大小则无法插入，返回错误 ErrPoolFulled。
 // @p 目标池
-// @i 目标位置（下标）
 // @item 待插入的成员
-func lockInsert[T any](p *Pool[T], i int, item *T) error {
+func backInsert[T any](p *Pool[T], item *T) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	sz := len(p.nodes)
+	sz := len(p.queue)
 	if sz >= p.max {
 		return ErrPoolFulled
 	}
-	if i > sz {
-		i = sz // 末尾添加
-	}
-	p.nodes = insert(p.nodes, i, item)
-	p.cursor = i + 1
+	p.queue = insert(p.queue, p.cursor, item)
+	// 步进游标
+	p.cursor = (p.cursor + 1) % sz
 
 	return nil
 }
 
-// 锁定插入成员片段。
-// 返回集可能是一个空集nil。
-// @p 目标池
-// @i 插入起点
-// @list 待插入成员清单
-// @return 未成功插入的部分成员
-func lockInserts[T any](p *Pool[T], i int, list []*T) ([]*T, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	sz := len(p.nodes)
-	if sz >= p.max {
-		return list, ErrPoolFulled
-	}
-	if i > sz {
-		i = sz
-	}
-	nodes, rest := inserts(p.nodes, i, p.max, list)
-
-	p.nodes = nodes
-	p.cursor = i + len(list) - len(rest)
-
-	return rest, nil
-}
-
-// 检查目标位置成员。
+// 检查游标位置成员。
 // 将目标位置的成员提取出来测试，独立于池外以避免长时锁定。
 // 如果测试通过，返回目标成员。
 // 否则回插，回插成功返回两个nil，否则返回成员和错误。
@@ -448,8 +411,8 @@ func lockInserts[T any](p *Pool[T], i int, list []*T) ([]*T, error) {
 // @i 目标位置
 // @test 测试函数，返回true为匹配
 // @return 目标成员或nil
-func check[T any](p *Pool[T], i int, test func(*T) bool) (*T, error) {
-	its := Remove(p, i)
+func check[T any](p *Pool[T], test func(*T) bool) (*T, error) {
+	its := cleanTake(p)
 
 	// 有锁定间隙，可能为nil
 	if its != nil {
@@ -458,69 +421,30 @@ func check[T any](p *Pool[T], i int, test func(*T) bool) (*T, error) {
 			return its, nil
 		}
 		// 回插
-		if err := lockInsert(p, i, its); err != nil {
+		if err := backInsert(p, its); err != nil {
 			return its, err
 		}
 	}
 	return nil, nil
 }
 
-// 并发检查目标段成员。
-// 与check逻辑类似，目标成员全部取出后测试，避免长时锁定。
-// 耗时取决于最慢的那个条目。
+// 限量检查目标位置成员封装。
+// 通过外部的cnt管道限制并发量，检查结束后读取计量约束管道，释放限额。
 // @p 目标池
-// @i 目标起始位置
-// @size 片段长度
+// @i 目标位置
 // @test 测试函数，返回true为匹配
-// @return 测试通过的成员清单
-func checks[T any](p *Pool[T], i, size int, test func(*T) bool) ([]*T, error) {
-	list := Removes(p, i, size)
-	if list == nil {
-		return nil, nil
+// @cnt 外部计量限制
+// @out 对外递送管道
+func checkx[T any](p *Pool[T], test func(*T) bool, cnt <-chan struct{}, out chan<- *T) {
+	its, err := check(p, test)
+
+	if its != nil {
+		out <- its
 	}
-	var wg sync.WaitGroup
-
-	del := make([]*T, 0, len(list))
-	bak := make([]*T, 0, len(list))
-	chdel := make(chan *T)
-	chbak := make(chan *T)
-
-	for _, its := range list {
-		wg.Add(1)
-
-		go func(x *T) {
-			defer wg.Done()
-
-			if test(x) {
-				chdel <- x
-			} else {
-				chbak <- x
-			}
-		}(its)
-	}
-	go func() {
-		wg.Wait()
-		close(chdel)
-		close(chbak)
-	}()
-
-	for its := range chdel {
-		del = append(del, its)
-	}
-	for its := range chbak {
-		bak = append(bak, its)
-	}
-
-	// 可用回插
-	rest, err := lockInserts(p, i, bak)
 	if err != nil {
-		log.Println("[Info] back inserts on", err)
+		log.Printf("Clean pool error on %s with [%s].\n", err, its)
 	}
-	// 回插未完成段追加
-	if len(rest) > 0 {
-		del = append(del, rest...)
-	}
-	return del, nil
+	<-cnt // 释放外部计量
 }
 
 //
@@ -529,10 +453,10 @@ func checks[T any](p *Pool[T], i, size int, test func(*T) bool) ([]*T, error) {
 
 // 添加一个成员。
 func add[T any](p *Pool[T], item *T) error {
-	if len(p.nodes) >= p.max {
+	if len(p.queue) >= p.max {
 		return ErrPoolFulled
 	}
-	p.nodes = append(p.nodes, item)
+	p.queue = append(p.queue, item)
 	return nil
 }
 
@@ -544,11 +468,11 @@ func add[T any](p *Pool[T], item *T) error {
 // @i 目标位置
 // @return 移除的成员
 func remove[T any](p *Pool[T], i int) *T {
-	del := p.nodes[i]
-	sz := len(p.nodes)
+	del := p.queue[i]
+	sz := len(p.queue)
 
-	p.nodes[i] = p.nodes[sz-1]
-	p.nodes = p.nodes[:sz-1]
+	p.queue[i] = p.queue[sz-1]
+	p.queue = p.queue[:sz-1]
 
 	return del
 }
@@ -560,31 +484,31 @@ func remove[T any](p *Pool[T], i int) *T {
 func removes[T any](p *Pool[T], i, size int) []*T {
 	end := i + size
 	buf := make([]*T, size)
-	mid := len(p.nodes) - size
+	mid := len(p.queue) - size
 
-	copy(buf, p.nodes[i:end])
+	copy(buf, p.queue[i:end])
 
 	switch true {
 	// 刚到末尾
-	case end == len(p.nodes):
-		p.nodes = p.nodes[:i]
+	case end == len(p.queue):
+		p.queue = p.queue[:i]
 	// 末段局部
 	case end > mid:
-		n := copy(p.nodes[i:end], p.nodes[end:])
-		p.nodes = p.nodes[:i+n]
+		n := copy(p.queue[i:end], p.queue[end:])
+		p.queue = p.queue[:i+n]
 	// 中段
 	default:
-		copy(p.nodes[i:end], p.nodes[mid:])
-		p.nodes = p.nodes[:mid]
+		copy(p.queue[i:end], p.queue[mid:])
+		p.queue = p.queue[:mid]
 	}
 	return buf
 }
 
 // 清除全部
 func clear[T any](p *Pool[T]) []*T {
-	all := p.nodes
+	all := p.queue
 	p.cursor = 0
-	p.nodes = make([]*T, 0, p.max)
+	p.queue = make([]*T, 0, p.max)
 
 	return all
 }
@@ -606,63 +530,6 @@ func insert[T any](list []*T, i int, item *T) []*T {
 	return append(list, item)
 }
 
-// 插入连续多个成员。
-// 在目标起点位置i处插入一个片段，但合计总长不超过max。
-// 原位置的的片段移动到末尾。
-// 返回因超长而未插入的剩余片段。
-// @buf 目标集
-// @i 插入起点
-// @max 总集最大长度
-// @list 待插入片段
-// @return1 插入片段后的新集合
-// @return2 未能插入的剩余片段
-func inserts[T any](buf []*T, i, max int, list []*T) ([]*T, []*T) {
-	// 可用空间
-	can := max - len(buf)
-	if can == 0 {
-		return buf, list
-	}
-	use := len(list)
-	var rest []*T
-
-	// 可用空间不足
-	if use > can {
-		rest = make([]*T, use-can)
-		use = can
-		copy(rest, list[use:])
-		list = list[:use]
-	}
-	// 覆盖终点
-	end := i + use
-
-	// 待覆盖段长度不足
-	if end > len(buf) {
-		list = append(list, buf[i:]...) // 待覆盖片段移到新集之后
-		buf = append(buf[i:], list...)  // 整体追加
-	} else {
-		buf = append(buf, buf[i:end]...) // 待覆盖片段移到原集之后
-		copy(buf[i:end], list)           // 定长覆盖
-	}
-
-	return buf, rest
-}
-
-// 构造池成员随机下标集。
-// 如果池中成员数不足，则返回仅有的部分。
-// 传递count为负值表示全部。
-func indexes[T any](list []*T, count int) []int {
-	sz := len(list)
-
-	if count < 0 || count > sz {
-		count = sz
-	}
-	// // 优化：数量多于一半时
-	if count*2 > sz {
-		return rand.Perm(sz)[:count]
-	}
-	return customPerm(count, sz)
-}
-
 // 集合成员随机化。
 // 注意：会改变传递进来的切片本身。
 // @return 随机化了的原切片
@@ -678,12 +545,21 @@ func random[T any](list []*T) []*T {
 // 简单工具
 //////////////////////////////////////////////////////////////////////////////
 
-// 取通用最小值。
-func min[T constraints.Ordered](a, b T) T {
-	if a < b {
-		return a
+// Indexes 构造序列随机下标集。
+// 如果序列大小不足（小于要求的count），则count为序列大小。
+// 传递count为负值表示全部。
+// @size 序列大小
+// @count 需要的下标数量
+// @return 序列范围内的随机下标集
+func Indexes(size, count int) []int {
+	if count < 0 || count > size {
+		count = size
 	}
-	return b
+	// // 优化：数量多于一半时
+	if count*2 > size {
+		return rand.Perm(size)[:count]
+	}
+	return customPerm(count, size)
 }
 
 // 生成不重复随机值序列。

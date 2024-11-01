@@ -6,14 +6,9 @@ require (
 	github.com/gorilla/websocket v1.5.1
 	github.com/hjson/hjson-go v3.3.0+incompatible
 	github.com/pion/dtls/v2 v2.2.11
+	golang.org/x/exp v0.0.0-20240909161429-701f63a606c0
 	gonum.org/v1/plot v0.14.0
 	google.golang.org/protobuf v1.34.1
-)
-
-require (
-	github.com/yuin/goldmark v1.4.13 // indirect
-	golang.org/x/exp v0.0.0-20240909161429-701f63a606c0 // indirect
-	golang.org/x/mod v0.21.0 // indirect
 )
 
 require (
@@ -24,7 +19,6 @@ require (
 	github.com/go-latex/latex v0.0.0-20230307184459-12ec69307ad9 // indirect
 	github.com/go-pdf/fpdf v0.8.0 // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
-	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/pion/logging v0.2.2 // indirect
 	github.com/pion/transport/v2 v2.2.4 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

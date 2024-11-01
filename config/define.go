@@ -27,31 +27,34 @@ const (
 	RemotePort     = 7788 // 远端目标端口（TCP）
 	UDPListen      = 7080 // 本地 NAT 类型探测监听端口
 	UDPLiving      = 7181 // 本地 NAT 生命期探测监听端口
-	MaxFindings    = 10   // 组网节点连接数
-	PeersHelp      = 8    // 上线帮助发送条目数
+	MaxFinders     = 10   // 组网节点连接数
+	PeersHelp      = 8    // 上线协助发送条目数
 	MaxApps        = 500  // 每种应用默认的节点连接数上限
 	ListFindings   = 40   // 本类节点候选名单长度
 	BufferSize     = 1024 // 连接读写缓冲区大小
 	PeerFindRange  = 200  // 节点寻找的范围（基于起点）
-	STUNPeerAmount = 6    // 打洞协助连接节点数
+	STUNPeerAmount = 5    // 打洞协助连系的节点数
+	STUNLiving     = true // 是否启动 STUN:Live 服务（NAT生命期探测）
+	STUNClient     = true // 是否需要NAT层级&生存期探测
 )
 
 // 开发配置常量
 // 部分值关系到安全性，不提供外部可配置。
 const (
 	SomeFindings    = 10                // 本类端组网发送条目数
+	AppServerTCP    = 6                 // 应用端请求TCP服务器节点数量
+	STUNTryMax      = 4                 // 打洞协助单次失败再尝试最大次数
 	FinderPatrol    = time.Minute * 10  // 本类节点连接切换巡查间隔
 	ShortlistPatrol = time.Minute * 6   // 后续池节点在线巡查间隔
 	BanExpired      = time.Hour * 4     // 恶意节点禁闭期限
-	ApplierPatrol   = time.Minute * 12  // 应用连接池巡查间隔（清除太老节点，节省内存）
+	ApplierPatrol   = time.Minute * 12  // 应用连接池巡查间隔
 	ApplierExpired  = time.Minute * 150 // 应用端在线最长时间（2.5h）
-	STUNTryMax      = 4                 // 打洞协助单次失败再尝试最大次数
 )
 
-// 本系统（findings:one）
+// 本系统（findings:z）
 const (
-	KindName = "findings" // 基础类别名
-	AppName  = "one"      // 本服务系统名
+	Kind    = "findings" // 基础类别
+	AppName = "z"        // 本服务实现名
 )
 
 // 日志文件名
@@ -96,6 +99,8 @@ type Config struct {
 	BufferSize     int    `json:"buffer_size,omitempty"` // 连接读写缓冲区大小
 	PeerFindRange  int    `json:"peers_range"`           // 基于起点，节点寻找的范围
 	STUNPeerAmount int    `json:"stun_peer_amount"`      // 打洞协助连接节点数
+	STUNLiving     bool   `json:"stun_living"`           // 是否启动全局 UDP:STUN 服务
+	STUNClient     bool   `json:"stun_client"`           // 是否需要NAT层级&生存期探测
 }
 
 // Base 获取基础配置。
@@ -108,13 +113,15 @@ func Base() (*Config, error) {
 		UDPListen:      UDPListen,
 		UDPLiving:      UDPLiving,
 		LogDir:         LogsDirname,
-		Findings:       MaxFindings,
+		Findings:       MaxFinders,
 		PeersHelp:      PeersHelp,
 		ConnApps:       MaxApps,
 		Shortlist:      ListFindings,
 		BufferSize:     BufferSize,
 		PeerFindRange:  PeerFindRange,
 		STUNPeerAmount: STUNPeerAmount,
+		STUNLiving:     STUNLiving,
+		STUNClient:     STUNClient,
 	}
 
 	// 获取当前用户的家目录
