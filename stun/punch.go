@@ -9,6 +9,19 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// 两个打洞方向常量
+const (
+	MasterDir = "master" // 主动方，先发送信息打洞，然后监听对端连入
+	SlaveDir  = "slave"  // 从动方，直接拨号连接对端
+)
+
+var (
+	// IP 解析错误
+	ErrParseIP = errors.New("parse ip bytes failed")
+	// 无法打洞错误
+	ErrPunchDir = errors.New("invalid punch direction")
+)
+
 // Kind 应用类型名
 type Kind struct {
 	Base string // 基础类别
@@ -44,18 +57,6 @@ func (p *Peer) UDPAddr() *net.UDPAddr {
 		Port: p.Port,
 	}
 }
-
-// IP 解析错误
-var ErrParseIP = errors.New("parse ip bytes failed")
-
-// 无法打洞错误
-var ErrPunchDir = errors.New("invalid punch direction")
-
-// 两个打洞方向常量
-const (
-	MasterDir = "master" // 主动方，先发送信息打洞，然后监听对端连入
-	SlaveDir  = "slave"  // 从动方，直接拨号连接对端
-)
 
 // PunchDir 打洞方向
 // 数组两个成员对应两个方向名称（master|slave）

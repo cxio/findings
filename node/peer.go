@@ -51,3 +51,29 @@ func DecodePeers(data []byte) ([]*Node, error) {
 	}
 	return toNodes(plist.Peers), nil
 }
+
+//
+// 工具函数
+//////////////////////////////////////////////////////////////////////////////
+
+// 节点集转换
+// 主要用于 protobuf 序列化传输。
+func toPeers(nodes []*Node) []*Peer {
+	buf := make([]*Peer, 0, len(nodes))
+
+	for _, nd := range nodes {
+		buf = append(buf, &Peer{Ip: nd.IP.AsSlice(), Port: int32(nd.Port)})
+	}
+	return buf
+}
+
+// 节点集转换
+// 用于从 protobuf 传输的数据中解码提取。
+func toNodes(peers []*Peer) []*Node {
+	buf := make([]*Node, 0, len(peers))
+
+	for _, p := range peers {
+		buf = append(buf, NewFromPeer(p))
+	}
+	return buf
+}

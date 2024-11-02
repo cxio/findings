@@ -4,14 +4,12 @@ package node
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"net/netip"
-	"net/url"
 	"sync"
 	"time"
 
@@ -21,7 +19,6 @@ import (
 	"github.com/cxio/findings/stun"
 	"github.com/cxio/findings/stun/natx"
 	"github.com/gorilla/websocket"
-	"golang.org/x/exp/rand"
 )
 
 var (
@@ -721,6 +718,78 @@ func findingsKinds(conn *websocket.Conn, list []*base.Kind, cmd base.Command) er
 	return nil
 }
 
+// 作为客户端：
+// 初始上线请求协助、接收信息并处理。
+// - 向目标节点发送上线协助请求，然后接收对端的回应。
+// - 回应的节点信息（在线探测后）会汇入到候选池。
+// @peer 目标节点
+// @long 拨号等待超时设置
+// @pool 汇入的节点池（候选池）
+// @aban 添加禁闭地址的通道
+func findingsHelp(peer *config.Peer, long time.Duration, pool *Shortlist, aban chan<- string) error {
+	if pool.IsFulled() {
+		return nil
+	}
+	conn, err := WebsocketDial(peer.IP, int(peer.Port), long)
+	if err != nil {
+		return err
+	}
+	// 请求协助编码
+	data, err := base.EncodeKind(config.Kind, config.AppName, base.SEEK_ASSISTX)
+	if err != nil {
+		return err
+	}
+	// 顶层传送编码
+	data, err = base.EncodeProto(base.COMMAND_KIND, data)
+	if err != nil {
+		return err
+	}
+	if err = conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
+		return err
+	}
+	// 接收协助
+	// 不提供正确协助的对端被加入黑名单。
+	if err = receivePeers(conn, pool, base.COMMAND_HELP); err != nil {
+		aban <- conn.RemoteAddr().String()
+		return err
+	}
+	return nil
+}
+
+// 组网池成员更新。
+// 从候选池提取一个在线成员创建连接，
+// 如果成功，则替换组网池内的一个随机成员。
+// 注意：
+// 不检查组网池成员是否已满。
+// 会即时发送组网消息，交换分享彼此候选池的部分节点信息。
+// @pool 组网池
+// @list 候选池
+// @aban 禁闭添加通道
+// @return 更新是否出错
+func finderUpdate(pool *Finders, list *Shortlist, aban chan<- string) error {
+	var new *Finder
+	var err error
+	for {
+		new, err = createFinder(list)
+		if err != nil {
+			log.Println("[Error] create finder.")
+			return err
+		}
+		if err = finderShare(new, list, aban); err != nil {
+			log.Println("[Error] finder first share peers.")
+			continue
+		}
+		break
+	}
+	// 先随机移除
+	del := pool.Take()
+	if del != nil {
+		del.Conn.WriteMessage(websocket.TextMessage, []byte(base.CmdFindBye))
+		del.Conn.Close()
+	}
+	return pool.Add(new)
+}
+
 // 注册TCP分享池节点。
 // 读取对端传来的服务器节点信息，构造节点存储。
 // 注记：
@@ -779,172 +848,4 @@ func serviceNames(list []*base.Kind) []string {
 // @return 服务器相应的收益地址（区块链账号）
 func serviceStake(name string) string {
 	return stakePool[name]
-}
-
-//
-// 工具函数
-//////////////////////////////////////////////////////////////////////////////
-
-// WebsocketDial 创建一个websocket拨号
-// 如果传递超时时长long为0或负值，则采用默认的30秒钟。
-func WebsocketDial(ip netip.Addr, port int, long time.Duration) (*websocket.Conn, error) {
-	u := url.URL{
-		Scheme: "wss",
-		Path:   "/ws", // 兼容/上的监听
-	}
-	if ip.Is4() {
-		u.Host = fmt.Sprintf("%s:%d", ip, port)
-	} else {
-		u.Host = fmt.Sprintf("[%s]:%d", ip, port)
-	}
-	if long <= 0 {
-		long = defaultTimeout
-	}
-	// P2P 无需证书验证
-	dialer := &websocket.Dialer{
-		TLSClientConfig:  &tls.Config{InsecureSkipVerify: true},
-		HandshakeTimeout: long,
-	}
-	// 没有 request Header 需求，
-	// 因此忽略 http.Response 返回值
-	conn, _, err := dialer.Dial(u.String(), nil)
-
-	return conn, err
-}
-
-// Online 检查对端是否在线
-// 向目标连接发送探测消息，检查对端是否回应。
-// 因为是在已有的连接上测试，所以对端无论返回啥消息，都表示在线。
-// @conn 当前连接
-// @long 读取等待超时，负值或零表示采用默认值
-// @return 非nil表示下线
-func Online(conn *websocket.Conn, long time.Duration) error {
-	// Ping
-	err := conn.WriteMessage(websocket.TextMessage, []byte(base.CmdFindPing))
-	if err != nil {
-		return err
-	}
-	if long <= 0 {
-		long = defaultTimeout
-	}
-	conn.SetReadDeadline(time.Now().Add(long))
-	_, _, err = conn.ReadMessage()
-
-	return err
-}
-
-// Onlines 节点集在线测试
-// 检查目标节点集内的节点是否在线。
-// 测试过程会阻塞进程，达到超时时间后会返回已成功的集合。
-// 如果所有节点都在线，则可能提前返回。
-// 注意：
-// 会记录节点的ping时间，-1值表示不可达。
-// @nodes 目标节点集
-// @long 测试超时时间限定，零值表示采用系统默认值
-// @return 在线的节点集成员
-func Onlines(nodes []*Node, long time.Duration) []*Node {
-	var wg sync.WaitGroup
-	buf := make([]*Node, 0, len(nodes))
-
-	// 带适量缓存，
-	// 充分利用节点的反应速度（快者在前）
-	out := make(chan *Node, 3)
-
-	for _, node := range nodes {
-		wg.Add(1)
-
-		// 并行测试
-		go func(node *Node) {
-			defer wg.Done()
-			start := time.Now()
-
-			if err := node.Hello(long); err != nil {
-				node.Ping = -1
-				log.Printf("[%s] is unreachable because %s\n", node, err)
-				return
-			}
-			node.Ping = time.Since(start)
-
-			out <- node
-		}(node)
-	}
-	go func() {
-		wg.Wait()
-		close(out)
-	}()
-
-	// 阻塞式提取
-	for node := range out {
-		buf = append(buf, node)
-	}
-	return buf
-}
-
-// 节点集转换
-// 主要用于 protobuf 序列化传输。
-func toPeers(nodes []*Node) []*Peer {
-	buf := make([]*Peer, 0, len(nodes))
-
-	for _, nd := range nodes {
-		buf = append(buf, &Peer{Ip: nd.IP.AsSlice(), Port: int32(nd.Port)})
-	}
-	return buf
-}
-
-// 节点集转换
-// 用于从 protobuf 传输的数据中解码提取。
-func toNodes(peers []*Peer) []*Node {
-	buf := make([]*Node, 0, len(peers))
-
-	for _, p := range peers {
-		buf = append(buf, NewFromPeer(p))
-	}
-	return buf
-}
-
-// 下线判断。
-// 向目标连接发送探测消息，检查对端是否正常回应。
-// @conn 当前连接
-// @long 读取等待时间
-// @return 下线返回true，反之为false
-func offline(conn *websocket.Conn, long time.Duration) bool {
-	if err := Online(conn, long); err != nil {
-		log.Println("node is unreachable on", err)
-		return true
-	}
-	return false
-}
-
-// 递增法随机节点获取
-// 权重值按参数顺序递增，从1开始。
-// 池中添加实参成员，随着权重增加，重复添加（增加高权重项的数量）。
-// 最终取一个随机位置值。
-func increaseRandomNode(cs ...*Applier) *Applier {
-	size := increaseSum(1, 1, len(cs))
-	pool := make([]*Applier, 0, size)
-
-	for i, its := range cs {
-		if its != nil {
-			// 重复量逐渐增加
-			for n := 0; n < i+1; n++ {
-				pool = append(pool, its)
-			}
-		}
-	}
-	size = len(pool)
-	if size == 0 {
-		return nil
-	}
-	// 随机数列的随机位置
-	// i: [random...][rand-id]
-	return pool[rand.Perm(size)[rand.Intn(size)]]
-}
-
-// 递增等差数列求和
-// @a 起始值
-// @d 等差值
-// @n 项数
-// @return 求和值
-func increaseSum(a, d, n int) int {
-	return n * (2*a + (n-1)*d) / 2
 }

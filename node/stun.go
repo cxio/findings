@@ -9,7 +9,7 @@ import (
 	"github.com/cxio/findings/config"
 	"github.com/cxio/findings/stun"
 	"github.com/gorilla/websocket"
-	"golang.org/x/exp/constraints"
+	"golang.org/x/exp/rand"
 )
 
 // NAT 层级
@@ -237,10 +237,36 @@ func punchMatched(level stun.NatLevel, pools []*Appliers) *Applier {
 	return nil
 }
 
-// 通用取小值
-func min[T constraints.Ordered](a, b T) T {
-	if a < b {
-		return a
+// 递增法随机节点获取
+// 权重值按参数顺序递增，从1开始。
+// 池中添加实参成员，随着权重增加，重复添加（增加高权重项的数量）。
+// 最终取一个随机位置值。
+func increaseRandomNode(cs ...*Applier) *Applier {
+	size := increaseSum(1, 1, len(cs))
+	pool := make([]*Applier, 0, size)
+
+	for i, its := range cs {
+		if its != nil {
+			// 重复量逐渐增加
+			for n := 0; n < i+1; n++ {
+				pool = append(pool, its)
+			}
+		}
 	}
-	return b
+	size = len(pool)
+	if size == 0 {
+		return nil
+	}
+	// 随机数列的随机位置
+	// i: [random...][rand-id]
+	return pool[rand.Perm(size)[rand.Intn(size)]]
+}
+
+// 递增等差数列求和
+// @a 起始值
+// @d 等差值
+// @n 项数
+// @return 求和值
+func increaseSum(a, d, n int) int {
+	return n * (2*a + (n-1)*d) / 2
 }

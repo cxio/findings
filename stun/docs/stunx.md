@@ -298,8 +298,9 @@ RFC3489 中支持客户端指定响应地址（RESPONSE-ADDRESS, See Section 9.3
 
 ```go
 stunMessage {
-    Flag    byte // NAT 类型，打洞请求标识
-    IP      IP   // 公网IP
-    Port    int  // 公网端口
-    Token   int  // 身份标识，4字节随机数（由对端原样返回）
+	Dir    	string 	// 打洞方向
+	IP      bytes  	// 公网IP
+	Port    int  	// 公网端口
+	Level	int  	// NAT 层级
+	Token   bytes  	// 身份标识（对端原样返回）
 }

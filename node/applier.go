@@ -12,6 +12,7 @@ import (
 	"github.com/cxio/findings/node/pool"
 	"github.com/cxio/findings/stun"
 	"github.com/gorilla/websocket"
+	"golang.org/x/exp/constraints"
 )
 
 // 关联节点引用（UDP打洞）
@@ -331,11 +332,6 @@ func (a *Appliers) Add(node *Applier) error {
 	return pool.Add(&a.pool, node)
 }
 
-// Remove 移除目标成员
-func (a *Appliers) Remove(index int) *Applier {
-	return pool.Remove(&a.pool, index)
-}
-
 // Dispose 清除目标连接节点。
 // @conn 目标连接
 // @return 被移除的目标节点
@@ -344,11 +340,6 @@ func (a *Appliers) Dispose(conn *websocket.Conn) *Applier {
 		return conn == node.Conn
 	}
 	return pool.Dispose(&a.pool, test)
-}
-
-// Removes 移除多个成员。
-func (a *Appliers) Removes(i, size int) []*Applier {
-	return pool.Removes(&a.pool, i, size)
 }
 
 // Get 引用一个随机成员。
@@ -489,4 +480,50 @@ func (cp AppliersPool) Clean(ctx context.Context, kinds []string, long time.Dura
 // 即池集支持的应用类型多少。
 func (cp AppliersPool) Size() int {
 	return len(cp)
+}
+
+//
+// 工具函数
+//////////////////////////////////////////////////////////////////////////////
+
+// Online 检查对端是否在线
+// 向目标连接发送探测消息，检查对端是否回应。
+// 因为是在已有的连接上测试，所以对端无论返回啥消息，都表示在线。
+// @conn 当前连接
+// @long 读取等待超时，负值或零表示采用默认值
+// @return 非nil表示下线
+func Online(conn *websocket.Conn, long time.Duration) error {
+	// Ping
+	err := conn.WriteMessage(websocket.TextMessage, []byte(base.CmdFindPing))
+	if err != nil {
+		return err
+	}
+	if long <= 0 {
+		long = defaultTimeout
+	}
+	conn.SetReadDeadline(time.Now().Add(long))
+	_, _, err = conn.ReadMessage()
+
+	return err
+}
+
+// 下线判断。
+// 向目标连接发送探测消息，检查对端是否正常回应。
+// @conn 当前连接
+// @long 读取等待时间
+// @return 下线返回true，反之为false
+func offline(conn *websocket.Conn, long time.Duration) bool {
+	if err := Online(conn, long); err != nil {
+		log.Println("node is unreachable on", err)
+		return true
+	}
+	return false
+}
+
+// 通用取小值
+func min[T constraints.Ordered](a, b T) T {
+	if a < b {
+		return a
+	}
+	return b
 }

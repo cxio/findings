@@ -82,23 +82,6 @@ func Adds[T any](p *Pool[T], list ...*T) int {
 	return len(list)
 }
 
-// Remove 移除池中目标位置的成员。
-// 注意目标位置i不能超出池大小，不然会panic。
-// @p 目标池
-// @i 目标位置
-// @return 被移除的成员
-func Remove[T any](p *Pool[T], i int) *T {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	sz := len(p.queue)
-
-	if i >= sz || sz == 0 {
-		return nil
-	}
-	return remove(p, i)
-}
-
 // Removes 移除一段成员。
 // 下标应当为正，传递负数会引发painc。
 // 如果目标位置下标超出集合大小，无移除，返回nil。
