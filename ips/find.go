@@ -110,7 +110,7 @@ loop:
 			defer wg.Done()
 			nd := node.New(p.IP, int(p.Port))
 
-			if err := nd.Hello(long); err != nil {
+			if err := nd.Online(long); err != nil {
 				log.Printf("[%s] is unreachable on %s.\n", p, err)
 				return
 			}

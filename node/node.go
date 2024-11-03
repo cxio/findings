@@ -298,10 +298,11 @@ func NewFromPeer(p *Peer) *Node {
 	return &Node{IP: ip, Port: int(p.Port), Start: time.Now()}
 }
 
-// Online 测试节点是否在线
-// 针对TCP链路，采用普通TCP连接协议即可。
+// Hello 节点问候
+// 探知对端是否有反应（可连接）。
+// 仅针对TCP基础链路，采用普通TCP连接协议即可。
 // @long 测试超时时间
-func (n *Node) Online(long time.Duration) bool {
+func (n *Node) Hello(long time.Duration) bool {
 	// IPv6 | IPv4
 	ipp := netip.AddrPortFrom(n.IP, uint16(n.Port))
 
@@ -316,11 +317,11 @@ func (n *Node) Online(long time.Duration) bool {
 	return true
 }
 
-// Hello 初始问候。
+// Online 测试对端是否在线。
 // 拨号测试对端是否为本类服务节点（Findings）。
 // 如果返回错误，表示对端无法连通或不是同类节点。
 // @long 拨号等待时间
-func (n *Node) Hello(long time.Duration) error {
+func (n *Node) Online(long time.Duration) error {
 	conn, err := WebsocketDial(n.IP, n.Port, long)
 	if err != nil {
 		return err
@@ -421,7 +422,7 @@ func (s *Shortlist) Drop() []*Node {
 // 用户通常运行一个服务，定时调用该方法。
 func (s *Shortlist) Clean(ctx context.Context) {
 	test := func(node *Node) bool {
-		return node.Hello(-1) != nil
+		return node.Online(-1) != nil
 	}
 	start := time.Now()
 	out := pool.Clean(ctx, &s.pool, test)
@@ -806,8 +807,8 @@ func registerTCPStore(conn *websocket.Conn, store *TCPStore) error {
 	if err == nil {
 		return err
 	}
-	// 仅检查是否在线
-	if !tnode.Online(defaultTimeout) {
+	// 仅探知是否可连接
+	if !tnode.Hello(defaultTimeout) {
 		return ErrOnline
 	}
 	return store.Add(tnode)

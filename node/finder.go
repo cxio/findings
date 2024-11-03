@@ -643,7 +643,7 @@ func Onlines(nodes []*Node, long time.Duration) []*Node {
 			defer wg.Done()
 			start := time.Now()
 
-			if err := node.Hello(long); err != nil {
+			if err := node.Online(long); err != nil {
 				node.Ping = -1
 				log.Printf("[%s] is unreachable because %s\n", node, err)
 				return
