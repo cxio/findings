@@ -174,10 +174,12 @@ func (a *Applier) process(data []byte, conn *websocket.Conn) error {
 			return err
 		}
 		// 互助节点库记入
-		// 添加失败仅简单打印日志即可。
-		if err = appl4[punch.Level].Add(a); err != nil {
-			log.Println("[Waring]", err)
+		if err = appl4[punch.Level].Add(a); err == nil {
+			a.SetLinkPer(punch)
+			break
 		}
+		// 添加失败，简单记录
+		log.Println("[Waring]", err)
 
 	// 消息不合规
 	default:
