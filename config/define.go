@@ -23,6 +23,7 @@ import (
 
 // 基本配置常量。
 const (
+	UserID         = ""   // 本节点的身份ID（群组时用）
 	ServerPort     = 7788 // 默认服务端口（TCP）
 	RemotePort     = 7788 // 远端目标端口（TCP）
 	UDPListen      = 7080 // 本地 NAT 类型探测监听端口
@@ -55,7 +56,6 @@ const (
 const (
 	Kind    = "findings" // 基础类别
 	AppName = "z"        // 本服务实现名
-	User    = "thanks"   // 本节点的身份ID（非群组成员可任意）
 )
 
 // 日志文件名
@@ -88,6 +88,7 @@ func (p *Peer) String() string {
 // RemotePort 用于新节点初始上线时的暴力发现，
 // 仅在App内置节点已不可用，且也没有其它可连接的节点配置时才需要。
 type Config struct {
+	UserID         string `json:"user_id"`               // 本节点的身份ID（群组时用）
 	ServerPort     int    `json:"server_port"`           // 本地服务端口
 	RemotePort     int    `json:"remote_port,omitempty"` // 远端节点服务端口（7788|443|0|...）
 	UDPListen      int    `json:"udp_listen"`            // 本地 NAT 类型探测监听端口
@@ -109,6 +110,7 @@ type Config struct {
 func Base() (*Config, error) {
 	// 默认配置值
 	config := Config{
+		UserID:         UserID,
 		ServerPort:     ServerPort,
 		RemotePort:     RemotePort,
 		UDPListen:      UDPListen,

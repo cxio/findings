@@ -215,7 +215,7 @@ func ProcessOnKind(kind *base.Kind, conn *websocket.Conn, w http.ResponseWriter)
 		// 对于请求应用服务的客户端来说，这是第一个发送的消息（如果有）。
 		stake := serviceStake(kname)
 		if stake != "" {
-			if err := writeStake(conn, config.User, stake); err != nil {
+			if err := writeStake(conn, cfgUser.UserID, stake); err != nil {
 				log.Println("[Error]", err)
 				break
 			}

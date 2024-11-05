@@ -50,8 +50,8 @@ func NewApplier(node *Node, kname string, conn *websocket.Conn) *Applier {
 	}
 }
 
-// SetLinkPer 设置关联节点
-func (a *Applier) SetLinkPer(peer *LinkPeer) {
+// SetLinkPeer 设置关联节点
+func (a *Applier) SetLinkPeer(peer *LinkPeer) {
 	a.LinkPeer = peer
 }
 
@@ -173,13 +173,13 @@ func (a *Applier) process(data []byte, conn *websocket.Conn) error {
 		if err = servicePunching(conn, punch, appl4, cfgUser.STUNPeerAmount); err != nil {
 			return err
 		}
-		// 互助节点库记入
-		if err = appl4[punch.Level].Add(a); err == nil {
-			a.SetLinkPer(punch)
-			break
+		a.SetLinkPeer(punch)
+
+		// 互助节点入库
+		if err = appl4[punch.Level].Add(a); err != nil {
+			// 仅记录
+			log.Println("[Waring]", err)
 		}
-		// 添加失败，仅简单记录
-		log.Println("[Waring]", err)
 
 	// 消息不合规
 	default:

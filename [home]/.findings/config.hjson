@@ -13,5 +13,6 @@
     peers_range: 200,       // 节点寻找的范围（基于起点的半径）
     stun_peer_amount: 6,    // 打洞协助连接节点数
     stun_living: true,      // 是否启动 STUN:Live 服务（NAT生命期探测）
-    stun_client: true       // 是否需要作为客户端的NAT层级&生存期探测
+    stun_client: true,      // 是否需要作为客户端的NAT层级&生存期探测
+    user_id: "thanks"       // 本节点的身份ID（非群组成员可任意）
 }
