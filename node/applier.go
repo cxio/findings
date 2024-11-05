@@ -178,7 +178,7 @@ func (a *Applier) process(data []byte, conn *websocket.Conn) error {
 			a.SetLinkPer(punch)
 			break
 		}
-		// 添加失败，简单记录
+		// 添加失败，仅简单记录
 		log.Println("[Waring]", err)
 
 	// 消息不合规

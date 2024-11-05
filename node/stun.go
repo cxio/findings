@@ -161,10 +161,10 @@ func punchingPeer(punch *LinkPeer, pools []*Appliers, max int) (*Applier, *stun.
 			err = ErrAppNotFound
 			break
 		}
-		punch2 := peer.LinkPeer
 		// dir[0] punch
-		// dir[1] punch2
-		if dir, err = stun.PunchingDir(punch, punch2); err == nil {
+		// dir[1] peer.LinkPeer
+		// 成功匹配后退出
+		if dir, err = stun.PunchingDir(punch, peer.LinkPeer); err == nil {
 			break
 		}
 	}
