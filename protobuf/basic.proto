@@ -26,4 +26,12 @@ message ServKinds {
     repeated Kind names = 1;
 }
 
+// 收益信息
+// 用于公共服务节点获取应用端的捐赠。
+// 其中ID用于群组个体分辨，实际上也可以直接是区块链地址。
+message Stake {
+    string id = 1;      // 身份标识
+    string addr = 2;    // 收益地址（区块链）
+}
+
 option go_package = "../base";

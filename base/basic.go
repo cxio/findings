@@ -126,6 +126,27 @@ func DecodeServKinds(data []byte) ([]*Kind, error) {
 	return list.Names, nil
 }
 
+// EncodeStake 编码收益信息
+func EncodeStake(id, addr string) ([]byte, error) {
+	buf := &Stake{
+		Id:   id,
+		Addr: addr,
+	}
+	return proto.Marshal(buf)
+}
+
+// DecodeStake 解码收益信息
+// @return1 身份ID
+// @return2 收益地址
+func DecodeStake(data []byte) (string, string, error) {
+	buf := &Stake{}
+
+	if err := proto.Unmarshal(data, buf); err != nil {
+		return "", "", err
+	}
+	return buf.Id, buf.Addr, nil
+}
+
 //
 // 通用ProtoBuf数据包一级编解码。
 // 该数据包仅包含指令和关联数据的proto编码。

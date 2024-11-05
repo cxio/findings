@@ -168,8 +168,15 @@ func (a *Applier) process(data []byte, conn *websocket.Conn) error {
 		if !applPools.Supported(kind) {
 			return ErrAppKind
 		}
-		if err = servicePunching(conn, punch, applPools.Appliers4(kind), cfgUser.STUNPeerAmount); err != nil {
-			log.Println("stun server failed of", err)
+		appl4 := applPools.Appliers4(kind)
+
+		if err = servicePunching(conn, punch, appl4, cfgUser.STUNPeerAmount); err != nil {
+			return err
+		}
+		// 互助节点库记入
+		// 添加失败仅简单打印日志即可。
+		if err = appl4[punch.Level].Add(a); err != nil {
+			log.Println("[Waring]", err)
 		}
 
 	// 消息不合规

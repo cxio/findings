@@ -213,15 +213,9 @@ func ProcessOnKind(kind *base.Kind, conn *websocket.Conn, w http.ResponseWriter)
 
 		// 递送相应类型权益地址
 		// 对于请求应用服务的客户端来说，这是第一个发送的消息（如果有）。
-		// 注意类型为websocket.TextMessage。
 		stake := serviceStake(kname)
 		if stake != "" {
-			data, err := base.EncodeProto(base.COMMAND_STAKE, []byte(stake))
-			if err != nil {
-				log.Println("[Error]", err)
-				break
-			}
-			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			if err := writeStake(conn, config.User, stake); err != nil {
 				log.Println("[Error]", err)
 				break
 			}
@@ -789,6 +783,19 @@ func finderUpdate(pool *Finders, list *Shortlist, aban chan<- string) error {
 		del.Conn.Close()
 	}
 	return pool.Add(new)
+}
+
+// 向对端发送收益地址信息。
+func writeStake(conn *websocket.Conn, id, stake string) error {
+	data, err := base.EncodeStake(id, stake)
+	if err != nil {
+		return err
+	}
+	data, err = base.EncodeProto(base.COMMAND_STAKE, data)
+	if err != nil {
+		return err
+	}
+	return conn.WriteMessage(websocket.BinaryMessage, data)
 }
 
 // 注册TCP分享池节点。

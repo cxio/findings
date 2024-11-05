@@ -55,6 +55,7 @@ const (
 const (
 	Kind    = "findings" // 基础类别
 	AppName = "z"        // 本服务实现名
+	User    = "thanks"   // 本节点的身份ID（非群组成员可任意）
 )
 
 // 日志文件名

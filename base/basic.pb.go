@@ -196,6 +196,64 @@ func (x *ServKinds) GetNames() []*Kind {
 	return nil
 }
 
+// 收益信息
+// 用于公共服务节点获取应用端的捐赠。
+// 其中ID用于群组个体分辨，实际上也可以直接是区块链地址。
+type Stake struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Id   string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`     // 身份标识
+	Addr string `protobuf:"bytes,2,opt,name=addr,proto3" json:"addr,omitempty"` // 收益地址（区块链）
+}
+
+func (x *Stake) Reset() {
+	*x = Stake{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_basic_proto_msgTypes[3]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *Stake) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Stake) ProtoMessage() {}
+
+func (x *Stake) ProtoReflect() protoreflect.Message {
+	mi := &file_basic_proto_msgTypes[3]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Stake.ProtoReflect.Descriptor instead.
+func (*Stake) Descriptor() ([]byte, []int) {
+	return file_basic_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *Stake) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Stake) GetAddr() string {
+	if x != nil {
+		return x.Addr
+	}
+	return ""
+}
+
 var File_basic_proto protoreflect.FileDescriptor
 
 var file_basic_proto_rawDesc = []byte{
@@ -209,8 +267,11 @@ var file_basic_proto_rawDesc = []byte{
 	0x0a, 0x04, 0x73, 0x65, 0x65, 0x6b, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x73, 0x65,
 	0x65, 0x6b, 0x22, 0x28, 0x0a, 0x09, 0x53, 0x65, 0x72, 0x76, 0x4b, 0x69, 0x6e, 0x64, 0x73, 0x12,
 	0x1b, 0x0a, 0x05, 0x6e, 0x61, 0x6d, 0x65, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x05,
-	0x2e, 0x4b, 0x69, 0x6e, 0x64, 0x52, 0x05, 0x6e, 0x61, 0x6d, 0x65, 0x73, 0x42, 0x09, 0x5a, 0x07,
-	0x2e, 0x2e, 0x2f, 0x62, 0x61, 0x73, 0x65, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x2e, 0x4b, 0x69, 0x6e, 0x64, 0x52, 0x05, 0x6e, 0x61, 0x6d, 0x65, 0x73, 0x22, 0x2b, 0x0a, 0x05,
+	0x53, 0x74, 0x61, 0x6b, 0x65, 0x12, 0x0e, 0x0a, 0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28,
+	0x09, 0x52, 0x02, 0x69, 0x64, 0x12, 0x12, 0x0a, 0x04, 0x61, 0x64, 0x64, 0x72, 0x18, 0x02, 0x20,
+	0x01, 0x28, 0x09, 0x52, 0x04, 0x61, 0x64, 0x64, 0x72, 0x42, 0x09, 0x5a, 0x07, 0x2e, 0x2e, 0x2f,
+	0x62, 0x61, 0x73, 0x65, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -225,11 +286,12 @@ func file_basic_proto_rawDescGZIP() []byte {
 	return file_basic_proto_rawDescData
 }
 
-var file_basic_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_basic_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_basic_proto_goTypes = []interface{}{
 	(*Proto)(nil),     // 0: Proto
 	(*Kind)(nil),      // 1: Kind
 	(*ServKinds)(nil), // 2: ServKinds
+	(*Stake)(nil),     // 3: Stake
 }
 var file_basic_proto_depIdxs = []int32{
 	1, // 0: ServKinds.names:type_name -> Kind
@@ -282,6 +344,18 @@ func file_basic_proto_init() {
 				return nil
 			}
 		}
+		file_basic_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*Stake); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -289,7 +363,7 @@ func file_basic_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_basic_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

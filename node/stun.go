@@ -119,58 +119,56 @@ func servicePunching(conn *websocket.Conn, punch *LinkPeer, pools []*Appliers, a
 	pass := make(map[*websocket.Conn]bool)
 
 	for n := 0; n < amount; n++ {
-		client, err := punchingPeer(conn, punch, pools, config.STUNTryMax)
+		client, dir, err := punchingPeer(punch, pools, config.STUNTryMax)
 
 		// 条件不具备，无需再尝试
 		if err != nil {
 			return err
 		}
-		// 简单略过，计量继续
+		// 重复略过，计量继续
 		if pass[client.Conn] {
 			continue
+		}
+		// 向匹配端写入
+		if err = punchingPush(client.Conn, dir[1], client.LinkPeer, base.COMMAND_PUNCH); err != nil {
+			return err
+		}
+		// 同时向请求端写入
+		if err = punchingPush(conn, dir[0], punch, base.COMMAND_PUNCH); err != nil {
+			return err
 		}
 		pass[client.Conn] = true
 	}
 	return nil
 }
 
-// 应用端打洞协助（单次）
-// 参考对端的NAT类型，匹配恰当的互连节点，为它们提供信令服务：
-// 向彼此写入对端的信息（同时指明打洞方向）。
+// 获取有效打洞协助端。
+// 参考对端的NAT类型，匹配恰当的互连节点，以便为它们提供信令服务。
 // @conn 请求源客户端连接
-// @punch 源客户端打洞信息包
+// @punch 请求源打洞信息包
 // @pools NAT 节点池组（0:Pub/FullC; 1:RC; 2:P-RC; 3:Sym）
 // @max 失败再尝试次数
-// @return 成功写入打洞信息包的匹配端
-func punchingPeer(conn *websocket.Conn, punch *LinkPeer, pools []*Appliers, max int) (*Applier, error) {
+// @return1 成功匹配的节点
+// @return2 匹配的打洞方向
+func punchingPeer(punch *LinkPeer, pools []*Appliers, max int) (*Applier, *stun.PunchDir, error) {
 	var err error
 	var dir *stun.PunchDir
 	var peer *Applier
 
 	for n := 0; n < max; n++ {
 		peer = punchMatched(punch.Level, pools)
-
 		if peer == nil {
-			return nil, ErrAppNotFound
+			err = ErrAppNotFound
+			break
 		}
 		punch2 := peer.LinkPeer
-
 		// dir[0] punch
 		// dir[1] punch2
-		if dir, err = stun.PunchingDir(punch, punch2); err != nil {
-			return nil, err
-		}
-		// 向匹配端写入
-		// 成功即退出，否则尝试新的匹配。
-		if err = punchingPush(peer.Conn, dir[1], punch2, base.COMMAND_PUNCH); err == nil {
+		if dir, err = stun.PunchingDir(punch, punch2); err == nil {
 			break
 		}
 	}
-	if err != nil {
-		return nil, err
-	}
-	// 向请求源写入
-	return peer, punchingPush(conn, dir[0], punch, base.COMMAND_PUNCH)
+	return peer, dir, err
 }
 
 // 向应用端连接写入打洞信息包

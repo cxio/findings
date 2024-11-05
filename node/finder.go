@@ -234,8 +234,12 @@ func (f *Finder) process(data []byte, conn *websocket.Conn, notice chan<- *stun.
 
 	// 服务器端收益地址
 	case base.COMMAND_STAKE:
+		_, stake, err := base.DecodeStake(data)
+		if err != nil {
+			log.Println("[Error]", err)
+		}
 		// Only this
-		log.Println("Server stake address:", string(data))
+		log.Println("Server stake address:", stake)
 
 	// 消息不合规：仅打印到日志，容忍。
 	default:
