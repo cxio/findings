@@ -96,7 +96,7 @@ func main() {
 	node.Init(ctx, cfg, stakePool, chpeer, done)
 
 	// 恶意节点监察
-	go serverBans(ctx, bans, node.BanQuery, node.BanAddto)
+	go serverBans(ctx, bans, node.BanAddto, node.BanQuery)
 
 	// 启动服务主进程
 	serviceListen(cfg.ServerPort)
@@ -172,27 +172,31 @@ func serviceListen(port int) {
 // 注：
 // 除了用户外部配置的外，恶意节点仅为即时存在，并不存储。
 // 因为如果程序退出，新连接的节点已经变化。
-func serverBans(ctx context.Context, bans map[string]time.Time, banQuery, banAddto chan string) {
+func serverBans(ctx context.Context, bans map[string]time.Time, banAddto chan string, banQuery chan *node.Banner) {
 	log.Println("Start peer banning server.")
 loop:
 	for {
 		select {
 		case <-ctx.Done():
 			break loop
-		case ip := <-banQuery:
-			tm, ok := bans[ip]
+
+		case ban := <-banQuery:
+			tm, ok := bans[ban.Addr]
 			if !ok {
-				banQuery <- ""
+				ban.Close() // as false
 				break
 			}
 			// 超期移除
 			if time.Now().After(tm.Add(config.BanExpired)) {
-				delete(bans, ip)
-				banQuery <- ""
-				log.Println("Remove a ban peer:", ip)
+				delete(bans, ban.Addr)
+				ban.Close()
+				log.Println("Remove a ban peer:", ban.Addr)
 				break
 			}
-			banQuery <- ip
+			// 禁闭中
+			ban.Reply <- true
+			ban.Close()
+
 		// 添加新禁闭
 		case ip := <-banAddto:
 			bans[ip] = time.Now()
