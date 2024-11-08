@@ -194,12 +194,15 @@ func Bans() (map[string]time.Time, error) {
 		return nil, err
 	}
 	err = json.Unmarshal(data, &bans)
-
-	pool := make(map[string]time.Time)
-	for _, v := range bans {
-		pool[v] = time.Now()
+	if err != nil {
+		return nil, err
 	}
+	pool := make(map[string]time.Time)
 
+	// 注意地址格式的标准化
+	for _, k := range bans {
+		pool[k] = time.Now()
+	}
 	return pool, err
 }
 

@@ -34,7 +34,7 @@ const (
 const (
 	SEEK_FINDNET = "find:net" // 寻求：Findings组网
 	SEEK_ASSISTX = "assist:x" // 寻求：上线协助
-	SEEK_APPSERV = "stun:nat" // 寻求：应用服务（NAT探测&打洞协助）
+	SEEK_APPSERV = "stun:nat" // 寻求：应用服务（NAT探测、打洞协助、TCP服务节点）
 	SEEK_KINDAPP = "kind:app" // 寻求：应用支持清单
 	SEEK_PEERTCP = "peer:tcp" // 寻求：登记TCP服务器（可直连）
 )

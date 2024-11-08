@@ -110,15 +110,17 @@ func (x *Appinfo) GetExtra() []byte {
 
 // 打洞信息包
 // 由服务器传递给请求UDP打洞的两个应用端节点。
-// 方向：
+// 也用于应用客户端向服务器递送自身的UDP节点信息。
+// 方向（dir）：
 // - master 主动打洞方，创建监听等待连入（server）。
 // - slave 从动方，直接拨号连入（client）。
+// - "" 客户端向服务器报送自己的用于打洞的UDP信息。
 type Punchx struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Dir   string `protobuf:"bytes,1,opt,name=dir,proto3" json:"dir,omitempty"`      // 打洞方向（master|slave）
+	Dir   string `protobuf:"bytes,1,opt,name=dir,proto3" json:"dir,omitempty"`      // 打洞方向（master|slave|""）
 	Ip    []byte `protobuf:"bytes,2,opt,name=ip,proto3" json:"ip,omitempty"`        // 公网 IP
 	Port  int32  `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`   // 公网端口（监听|通讯）
 	Level int32  `protobuf:"varint,5,opt,name=level,proto3" json:"level,omitempty"` // NAT 层级（0: Pub/FullC; 1: RC; 2: P-RC; 3: Sym）

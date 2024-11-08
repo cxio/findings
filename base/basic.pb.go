@@ -78,20 +78,22 @@ func (x *Proto) GetData() []byte {
 }
 
 // 节点声明类别
+// 如果节点仅需NAT探测而无需打洞服务，name可以任意设置，但base需合法。
+// 因为NAT探测是标准内置服务，无需类型区分。
 // seek: 寻求的服务，仅在客户端向服务器请求时有用。
 // - find:net 参与组网，仅适用 findings 类型
-// - stun:nat 请求NAT探测和打洞协助，任意类型适用
-// - assist:x 寻求上线协助（获取Finder节点）
+// - assist:x 寻求上线协助（获取Finder节点，仅使用 findings 类型）
 // - kind:app 获取服务器支持的应用名清单
-// - peer:tcp 登记支持TCP的可直连服务器（后续提供信息）
+// - stun:nat 请求NAT探测、打洞协助或获取TCP服务节点
+// - peer:tcp 登记为可直连TCP服务器，后续提供node.Peer（直接node.EncodePeer编码）
 type Kind struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
 	Base string `protobuf:"bytes,1,opt,name=base,proto3" json:"base,omitempty"` // 基础名称（depots|blockchain|app|findings）
-	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"` // 具体的服务名称（任意……）
-	Seek string `protobuf:"bytes,3,opt,name=seek,proto3" json:"seek,omitempty"` // 寻求的服务（find:net|stun:nat|assist:x|kind:app|peer:tcp）
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"` // 具体的服务名称（……）
+	Seek string `protobuf:"bytes,3,opt,name=seek,proto3" json:"seek,omitempty"` // 寻求的服务（find:net|assist:x|kind:app|stun:nat|peer:tcp）
 }
 
 func (x *Kind) Reset() {

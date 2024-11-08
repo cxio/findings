@@ -206,6 +206,35 @@ func Takes[T any](p *Pool[T], count int) []*T {
 	return list
 }
 
+// Unique 集合去重。
+// 根据成员字符串化函数判定成员的相等性。
+// 因为移除的是重复的成员，所以无需返回该成员。
+// 注意：
+// 在锁死后操作，因此应当仅用于小型集合。
+// @p 目标池
+// @str 序列化函数。
+// @return 被移除的重复的数量
+func Unique[T any](p *Pool[T], str func(*T) string) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	all := len(p.queue)
+	max := all
+	buf := make(map[string]bool)
+
+	for i := 0; i < max; i++ {
+		k := str(p.queue[i])
+		if buf[k] {
+			remove(p, i)
+			i--
+			max--
+			continue
+		}
+		buf[k] = true
+	}
+	return all - len(buf)
+}
+
 // Size 返回池的大小。
 func Size[T any](p *Pool[T]) int {
 	p.mu.Lock()

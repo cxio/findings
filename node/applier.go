@@ -161,14 +161,17 @@ func (a *Applier) process(data []byte, conn *websocket.Conn) error {
 
 	// 执行UDP打洞协助
 	case base.COMMAND_STUN:
-		kind, punch, err := stun.DecodePunch(data)
+		// 客户端递送的信息，dir无用
+		_, punch, err := stun.DecodePunch(data)
 		if err != nil {
 			return err
 		}
-		if !applPools.Supported(kind) {
+		// 此时才需检查目标类型支持，
+		// 因为NAT探测是类型无关的。
+		if !applPools.Supported(a.Kind) {
 			return ErrAppKind
 		}
-		appl4 := applPools.Appliers4(kind)
+		appl4 := applPools.Appliers4(a.Kind)
 
 		if err = servicePunching(conn, punch, appl4, cfgUser.STUNPeerAmount); err != nil {
 			return err

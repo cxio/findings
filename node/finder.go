@@ -482,6 +482,11 @@ func findingsGets(data []byte, pool *Shortlist, qban chan string) error {
 		// 仅在线的节点入池。
 		pool.Adds(Onlines(nodes, 0)...)
 	}
+	// 合并后再去重
+	n := pool.Unique()
+	if n > 0 {
+		log.Printf("There are %d duplicates in pool.\n", n)
+	}
 	return nil
 }
 
@@ -562,7 +567,9 @@ func finderShare(finder *Finder, list *Shortlist, aban chan<- string) error {
 		log.Println("[Error] receive shared peers.")
 		// 加入黑名单
 		// 理由：在线且可正常接收数据，但无法提供正常的服务。
-		aban <- finder.Conn.RemoteAddr().String()
+		node := NewWithAddr(
+			finder.Conn.RemoteAddr())
+		aban <- node.String()
 	}
 	return err
 }
@@ -699,6 +706,8 @@ func filterBanned(nodes []*Node, ban chan string) []*Node {
 	buf := make([]*Node, 0, len(nodes))
 
 	for _, node := range nodes {
+		ban <- node.String()
+
 		if ip := <-ban; ip != "" {
 			log.Println("[Warning] The banned ip: ", ip)
 			continue

@@ -204,11 +204,10 @@ func ProcessOnKind(kind *base.Kind, conn *websocket.Conn, w http.ResponseWriter)
 
 	// depots|blockchain|app|findings
 	// 应用服务：NAT探测&打洞服务
+	// 注：
+	// NAT探测无需有效的kind类型值，打洞才需要。
+	// 因此此处无需检查应用池是否支持。
 	case base.SEEK_APPSERV:
-		if applPools.Size() == 0 {
-			http.Error(w, "not support your applier.", http.StatusForbidden)
-			break
-		}
 		kname := base.KindName(kind.Base, kind.Name)
 
 		// 递送相应类型权益地址
@@ -220,9 +219,6 @@ func ProcessOnKind(kind *base.Kind, conn *websocket.Conn, w http.ResponseWriter)
 				break
 			}
 		}
-		// 注记：
-		// 当应用节点请求打洞时才添加到池。
-		// 此时对端已经探知了自己的 NAT 类型和 UDP 地址。
 		app := NewApplier(node, kname, conn)
 
 		// 阻塞：提供服务
@@ -349,8 +345,7 @@ func (n *Node) Online(long time.Duration) error {
 }
 
 // String 字符串表示
-// 格式：IP:Port
-// 安全：不提供时间状态，隐私安全考虑。
+// 标准的 IP:Port 格式，也用于禁闭检查。
 func (n *Node) String() string {
 	return netip.AddrPortFrom(n.IP, uint16(n.Port)).String()
 }
@@ -403,6 +398,15 @@ func (s *Shortlist) Takes(count int) []*Node {
 // @return 一个随机节点序列
 func (s *Shortlist) List(count int) []*Node {
 	return pool.List(&s.pool, count)
+}
+
+// Unique 集合去重。
+// 移除地址重复的节点，这在新节点汇入时可能产生。
+func (s *Shortlist) Unique() int {
+	str := func(n *Node) string {
+		return n.String()
+	}
+	return pool.Unique(&s.pool, str)
 }
 
 // Drop 提取全部成员。
@@ -810,6 +814,7 @@ func registerTCPStore(conn *websocket.Conn, store *TCPStore) error {
 	if typ != websocket.BinaryMessage {
 		return ErrMsgFormat
 	}
+	// 直接解码，无 base.DecodeProto 上层封装
 	tnode, err := DecodePeer(data)
 	if err == nil {
 		return err
