@@ -30,8 +30,8 @@ type Banner struct {
 	Reply chan bool // 回复通道（禁闭中：true，未禁闭：false）
 }
 
-// NewBanner 创建一个禁闭查询。
-func NewBanner(node *Node) *Banner {
+// 创建一个禁闭查询。
+func newBanner(node *Node) *Banner {
 	return &Banner{
 		Addr:  node.String(),
 		Reply: make(chan bool),
@@ -45,11 +45,10 @@ func (b *Banner) Close() {
 
 var (
 	// 禁闭查询通道
-	// 无缓存，维持不同请求间并发安全。
 	BanQuery = make(chan *Banner)
 
 	// 禁闭添加通道
-	// 单向添加用途，故带缓存无阻塞。
+	// 单向添加，带缓存无阻塞。
 	BanAddto = make(chan string, 1)
 )
 
@@ -726,7 +725,7 @@ func filterBanned(nodes []*Node, qban chan *Banner) []*Node {
 	buf := make([]*Node, 0, len(nodes))
 
 	for _, node := range nodes {
-		ban := NewBanner(node)
+		ban := newBanner(node)
 		qban <- ban
 
 		if <-ban.Reply {
