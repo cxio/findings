@@ -719,17 +719,17 @@ func createFinder(pool *Shortlist) (*Finder, error) {
 
 // 禁闭节点过滤
 // @nodes 原节点集
-// @ban 禁闭查询通道
+// @qban 禁闭查询通道
 // @return 未禁闭的节点集
 func filterBanned(nodes []*Node, qban chan *Banner) []*Node {
 	buf := make([]*Node, 0, len(nodes))
 
 	for _, node := range nodes {
-		ban := newBanner(node)
-		qban <- ban
+		bq := newBanner(node)
+		qban <- bq
 
-		if <-ban.Reply {
-			log.Println("[Warning] The banned ip: ", ban.Addr)
+		if <-bq.Reply {
+			log.Println("[Warning] The banned node: ", bq.Addr)
 			continue
 		}
 		buf = append(buf, node)
