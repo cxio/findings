@@ -50,6 +50,8 @@ const (
 	BanExpired      = time.Hour * 4     // 恶意节点禁闭期限
 	ApplierPatrol   = time.Minute * 12  // 应用连接池巡查间隔
 	ApplierExpired  = time.Minute * 150 // 应用端在线最长时间（2.5h）
+	Punch2Expired   = time.Minute * 30  // 定向打洞目标暂存时长（最大值）
+	Punch2Clean     = time.Minute * 60  // 定向打洞目标暂存清理周期
 )
 
 // 本系统（findings:z）

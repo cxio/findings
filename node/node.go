@@ -57,6 +57,9 @@ var (
 	// TCP 分享池集
 	tcpStores TCPStorePool
 
+	// 定向打洞支持
+	appMaps AppPool
+
 	// UDP 客户端
 	clientUDP *natx.Client
 
@@ -126,6 +129,12 @@ func Init(ctx context.Context, cfg *config.Config, stake map[string]string, chpe
 	// 应用池清理巡查
 	if applPools.Size() > 0 {
 		go serverPatrol(ctx, applPools, config.ApplierPatrol, names)
+	}
+
+	// 定向打洞：连接映射集
+	appMaps = NewAppPool(names)
+	if len(names) > 0 {
+		go serverPunch2(ctx, appMaps, config.Punch2Clean, names)
 	}
 
 	// 接收广域 Finder
@@ -676,6 +685,7 @@ loop:
 // @ctx 当前上下文传递
 // @pool 应用节点连接池
 // @dur 巡查间隔时间（上次巡查完到本次开始）
+// @kinds 类别名称序列
 func serverPatrol(ctx context.Context, pools AppliersPool, dur time.Duration, kinds []string) {
 	log.Println("Start client pools patrol server.")
 	// 友好：
@@ -692,6 +702,36 @@ loop:
 		}
 	}
 	log.Println("applier pools patrol server exit.")
+}
+
+// 定向打洞目标暂存池巡查服务
+// 定期清理过期的目标，以避免内存无效占用。
+// @ctx 当前运行上下文
+// @pool 各类别映射池
+// @dur 巡查周期
+// @kinds 类别名称序列
+func serverPunch2(ctx context.Context, pool AppPool, dur time.Duration, kinds []string) {
+	log.Println("Start punch maps clean server.")
+	// 友好：
+	time.Sleep(time.Minute * 30)
+loop:
+	for {
+		select {
+		case <-ctx.Done():
+			break loop
+
+		case <-time.After(dur):
+			for _, kind := range kinds {
+				amap, err := pool.Get(kind)
+				if err != nil {
+					log.Println("[Error]", err)
+					continue
+				}
+				amap.Clean()
+			}
+		}
+	}
+	log.Println("puhch maps clean server exit.")
 }
 
 //

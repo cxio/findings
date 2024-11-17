@@ -385,18 +385,13 @@ func (f *Finder) NatLive() (time.Duration, error) {
 // 作为客户端，向当前TCP连接的对端请求打洞协助。
 // @peer 自身关联的UDP节点信息
 func (f *Finder) Punching(peer *LinkPeer) error {
-	// 本客户端类型
-	kind := &stun.Kind{
-		Base: config.Kind,
-		Name: config.AppName,
-	}
-	// 底层封装
-	info, err := stun.EncodeAppinfo(kind, peer)
+	// 方向由服务器决定
+	info, err := stun.EncodePunch("", peer)
 	if err != nil {
 		return err
 	}
-	// 顶层封装
-	data, err := base.EncodeProto(base.COMMAND_STUN, info)
+	// 注意：非.COMMAND_PUNCHX
+	data, err := base.EncodeProto(base.COMMAND_PUNCH, info)
 	if err != nil {
 		return err
 	}

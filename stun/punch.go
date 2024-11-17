@@ -4,8 +4,8 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"time"
 
-	"github.com/cxio/findings/base"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -21,21 +21,6 @@ var (
 	// 无法打洞错误
 	ErrPunchDir = errors.New("invalid punch direction")
 )
-
-// Kind 应用类型名
-type Kind struct {
-	Base string // 基础类别
-	Name string // 应用名称
-}
-
-// NewKind 从基础 base.Kind 创建。
-// 注：略过其中的的 seek 字段（不需要）。
-func NewKind(kind *base.Kind) *Kind {
-	return &Kind{
-		Base: kind.Base,
-		Name: kind.Name,
-	}
-}
 
 // Peer 节点信息
 type Peer struct {
@@ -56,6 +41,13 @@ func (p *Peer) UDPAddr() *net.UDPAddr {
 		IP:   p.IP.AsSlice(),
 		Port: p.Port,
 	}
+}
+
+// Key 生成节点的键。
+// 仅用IP和端口创建，会避免IPv4嵌入IPv6的不一致问题。
+func (p *Peer) Key() string {
+	addr := p.IP.Unmap()
+	return netip.AddrPortFrom(addr, uint16(p.Port)).String()
 }
 
 // PunchDir 打洞方向
@@ -108,44 +100,6 @@ func PunchingDir(p1, p2 *Peer) (*PunchDir, error) {
 // 编解码函数
 //////////////////////////////////////////////////////////////////////////////
 
-// EncodeAppinfo 应用端节点信息
-// 用于应用端把自己的信息编码发送到服务器，寻求打洞协助（UDP)或注册自己的节点（TCP）。
-// @base 基础类型
-// @name 应用名
-// @app 应用端信息包
-func EncodeAppinfo(kind *Kind, app *Peer) ([]byte, error) {
-	buf := &Appinfo{
-		Base:  kind.Base,
-		Name:  kind.Name,
-		Ip:    app.IP.AsSlice(),
-		Port:  int32(app.Port),
-		Level: int32(app.Level),
-		Extra: app.Extra,
-	}
-	return proto.Marshal(buf)
-}
-
-// DecodeAppinfo 解码打洞信息包
-// @data 网络传输过来的已编码数据
-// @return1 应用类型名
-// @return2 应用端节点
-func DecodeAppinfo(data []byte) (*Kind, *Peer, error) {
-	buf := &Appinfo{}
-
-	if err := proto.Unmarshal(data, buf); err != nil {
-		return nil, nil, err
-	}
-	addr, ok := netip.AddrFromSlice(buf.Ip)
-	if !ok {
-		return nil, nil, ErrParseIP
-	}
-	kind := Kind{
-		Base: buf.Base,
-		Name: buf.Name,
-	}
-	return &kind, NewPeer(addr, int(buf.Port), NatLevel(buf.Level), buf.Extra), nil
-}
-
 // EncodePunch 编码打洞信息
 // @dir 打洞方向（master|slave）
 // @pun 打洞信息包
@@ -175,4 +129,59 @@ func DecodePunch(data []byte) (string, *Peer, error) {
 		return "", nil, ErrParseIP
 	}
 	return buf.Dir, NewPeer(addr, int(buf.Port), NatLevel(buf.Level), buf.Token), nil
+}
+
+// EncodePunchOne 编码定向打洞信息包
+// 注意to可能为nil，此时为接收方登记入库逻辑。
+// @app 应当端信息
+// @to 打洞目标节点信息
+// @expire 登记过期时长（秒数）
+func EncodePunchOne(app *Peer, to *UDPInfo, expire int) ([]byte, error) {
+	cli := &Punchx{
+		Dir:   "",
+		Ip:    app.IP.AsSlice(),
+		Port:  int32(app.Port),
+		Level: int32(app.Level),
+		Token: app.Extra,
+	}
+	return proto.Marshal(&PunchOne{Client: cli, Target: to, Expire: int32(expire)})
+}
+
+// DecodePunchOne 解码定向打洞信息包
+// 返回的string为目标节点的UDP地址串，作为索引查询键。
+// 如果为登记场景，则该string为空串，无错。
+// 注：
+// 索引键中的IP会保证IPv6中嵌入的IPv4脱离出来。
+// @return1 目标节点索引，空串表示登记
+// @return2 节点自身UDP关联信息
+func DecodePunchOne(data []byte) (string, *Peer, time.Duration, error) {
+	buf := &PunchOne{}
+
+	if err := proto.Unmarshal(data, buf); err != nil {
+		return "", nil, 0, err
+	}
+	// 客户端自身地址
+	addr, ok := netip.AddrFromSlice(buf.Client.Ip)
+	if !ok {
+		return "", nil, 0, ErrParseIP
+	}
+	peer := NewPeer(
+		addr,
+		int(buf.Client.Port),
+		NatLevel(buf.Client.Level),
+		buf.Client.Token,
+	)
+	// 登记场景
+	if buf.Target == nil {
+		return "", peer, time.Duration(buf.Expire) * time.Second, nil
+	}
+	// 目标节点地址
+	ip, ok := netip.AddrFromSlice(buf.Target.Ip)
+	if !ok {
+		return "", nil, 0, ErrParseIP
+	}
+	// 嵌入IPv6的IPv4会剥离。
+	key := netip.AddrPortFrom(ip.Unmap(), uint16(buf.Target.Port))
+
+	return key.String(), peer, 0, nil
 }

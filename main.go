@@ -216,7 +216,7 @@ loop:
 // 2. 节点声明：
 // 提供自己的基本信息。
 // - 应用自身所属的类别（findings|depots|blockchain|app）和名称。
-// - 应用所寻求的服务（find:net|stun:nat|assist:x|kind:app|peer:tcp）。
+// - 应用所寻求的服务（find:net|assist:x|kind:app|app:serv|peer:tcp）。
 //
 // 节点声明之后，即可开始后续的逻辑。
 func handleConnect(w http.ResponseWriter, r *http.Request) {

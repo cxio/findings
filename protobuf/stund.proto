@@ -1,15 +1,5 @@
 syntax = "proto3";
 
-// 应用端信息
-message Appinfo {
-    string base = 1;    // 所属基础类别
-    string name = 2;    // 应用名
-    bytes ip = 3;       // UDP 公网 IP
-    int32 port = 4;     // UDP 公网端口（监听|通讯）
-    int32 level = 5;    // NAT 层级（0: Pub/FullC; 1: RC; 2: P-RC; 3: Sym）
-    bytes extra = 6;    // 额外信息（可用于打洞核验）
-}
-
 // 打洞信息包
 // 由服务器传递给请求UDP打洞的两个应用端节点。
 // 也用于应用客户端向服务器递送自身的UDP节点信息。
@@ -54,9 +44,21 @@ message Hosto {
 }
 
 // UDPInfo 客户端UDP信息
+// 服务器在 STUN:Cone|Sym 中向客户端告知其UDP状况。
 message UDPInfo {
     bytes ip = 1;   // UDP 公网IP
     int32 port = 2; // UDP 公网端口
+}
+
+// PunchOne 定向打洞信息
+// 如果未指定目标，表示当前节点为登记。
+// 登记时 expire 字段有效，最大值为30分钟（30*60秒），
+// - 负值表示遵照服务器内置默认值（30分钟）。
+// - 零值表示立即过期（但可使用一次）。
+message PunchOne {
+    Punchx client = 1;  // 客户端自身的信息
+    UDPInfo target = 2; // 目标节点的UDP信息
+    int32 expire = 3;   // 登记暂存时长（秒数）
 }
 
 option go_package = "../stun";

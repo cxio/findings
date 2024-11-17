@@ -56,7 +56,7 @@ const xhostCount = 2
 
 // 客户端服务员映射。
 // 用于客户端的TCP链路的Applier服务员和UDP链路的对应。
-// 即：UDP发送的信息，应当由TCP上相应的服务员处理。
+// 即：UDP发送的信息，应当由TCP上相应的Applier处理。
 // 注记：
 // 不用netip.Addr来作为键，因为同一个客户端可能运行多个实例。
 type clientApps struct {
@@ -129,12 +129,12 @@ func servicePunching(conn *websocket.Conn, punch *LinkPeer, pools []*Appliers, a
 		if pass[client.Conn] {
 			continue
 		}
-		// 向匹配端写入
-		if err = punchingPush(client.Conn, dir[1], client.LinkPeer, base.COMMAND_PUNCH); err != nil {
+		// 向匹配端写入请求端信息
+		if err = punchingPush(client.Conn, dir[1], punch, base.COMMAND_PUNCHX); err != nil {
 			return err
 		}
-		// 同时向请求端写入
-		if err = punchingPush(conn, dir[0], punch, base.COMMAND_PUNCH); err != nil {
+		// 向请求端写入匹配端信息
+		if err = punchingPush(conn, dir[0], client.LinkPeer, base.COMMAND_PUNCHX); err != nil {
 			return err
 		}
 		pass[client.Conn] = true
@@ -171,11 +171,32 @@ func punchingPeer(punch *LinkPeer, pools []*Appliers, max int) (*Applier, *stun.
 	return peer, dir, err
 }
 
+// 执行定向打洞。
+// 返回错误通常是因为两个节点的NAT没法打洞通讯。
+// @conn 当前客户端连接
+// @punch 当前客户端UDP关联节点
+// @app 打洞的目标应用端
+func punchingOne(conn *websocket.Conn, punch *LinkPeer, app *Applier) error {
+	// dir[0] punch
+	// dir[1] app.LinkPeer
+	dir, err := stun.PunchingDir(punch, app.LinkPeer)
+	if err != nil {
+		return err
+	}
+	// 先向目标应用端写入
+	// 因为失败的可能性更高，及时终止。
+	if err = punchingPush(app.Conn, dir[1], punch, base.COMMAND_PUNCHX); err != nil {
+		return err
+	}
+	// 向当前客户端写入
+	return punchingPush(conn, dir[0], app.LinkPeer, base.COMMAND_PUNCHX)
+}
+
 // 向应用端连接写入打洞信息包
 // 信息包依然为两级封装，内层编码需用 stun.DecodePunch 解码。
 // @conn 应用端连接
-// @punch 打洞信息包
-// @cmd 顶层封装类别（应为 COMMAND_PUNCH）
+// @punch 匹配端的打洞信息包
+// @cmd 封装类别（COMMAND_PUNCHX）
 // @return 返回错误通常表示传输失败（对端不在线）
 func punchingPush(conn *websocket.Conn, dir string, punch *LinkPeer, cmd base.Command) error {
 	// 内层编码

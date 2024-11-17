@@ -84,7 +84,7 @@ func (x *Proto) GetData() []byte {
 // - find:net 参与组网，仅适用 findings 类型
 // - assist:x 寻求上线协助（获取Finder节点，仅使用 findings 类型）
 // - kind:app 获取服务器支持的应用名清单
-// - stun:nat 请求NAT探测、打洞协助或获取TCP服务节点
+// - app:serv 请求NAT探测、打洞协助或获取TCP服务节点
 // - peer:tcp 登记为可直连TCP服务器，后续提供node.Peer（直接node.EncodePeer编码）
 type Kind struct {
 	state         protoimpl.MessageState
@@ -93,7 +93,7 @@ type Kind struct {
 
 	Base string `protobuf:"bytes,1,opt,name=base,proto3" json:"base,omitempty"` // 基础名称（depots|blockchain|app|findings）
 	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"` // 具体的服务名称（……）
-	Seek string `protobuf:"bytes,3,opt,name=seek,proto3" json:"seek,omitempty"` // 寻求的服务（find:net|assist:x|kind:app|stun:nat|peer:tcp）
+	Seek string `protobuf:"bytes,3,opt,name=seek,proto3" json:"seek,omitempty"` // 寻求的服务（find:net|assist:x|kind:app|app:serv|peer:tcp）
 }
 
 func (x *Kind) Reset() {

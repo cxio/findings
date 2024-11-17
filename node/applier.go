@@ -108,13 +108,13 @@ top:
 			switch typ {
 			// 简单指令
 			case websocket.TextMessage:
-				if err := a.simpleProcess(string(msg), a.Conn); err != nil {
+				if err := a.simpleProcess(string(msg)); err != nil {
 					log.Println(err)
 					break top
 				}
 			// 复合指令
 			case websocket.BinaryMessage:
-				if err := a.process(msg, a.Conn); err != nil {
+				if err := a.process(msg); err != nil {
 					log.Printf("[%s] finder service exited on %s\n", a.Node, err)
 					break top
 				}
@@ -140,7 +140,7 @@ top:
 // 包含NAT类型探测服务和UDP打洞信令协助。
 // 注记：
 // 仅在需要退出服务时才返回错误。
-func (a *Applier) process(data []byte, conn *websocket.Conn) error {
+func (a *Applier) process(data []byte) error {
 	// 顶层解码
 	cmd, data, err := base.DecodeProto(data)
 	if err != nil {
@@ -155,27 +155,26 @@ func (a *Applier) process(data []byte, conn *websocket.Conn) error {
 		if applPools.Supported(string(data)) {
 			msg = base.CmdKindOK
 		}
-		if err := conn.WriteMessage(websocket.TextMessage, []byte(msg)); err != nil {
+		if err := a.Conn.WriteMessage(websocket.TextMessage, []byte(msg)); err != nil {
 			return err
 		}
 
 	// 执行UDP打洞协助
-	case base.COMMAND_STUN:
+	case base.COMMAND_PUNCH:
+		if !applPools.Supported(a.Kind) {
+			return ErrAppKind
+		}
 		// 客户端递送的信息，dir无用
 		_, punch, err := stun.DecodePunch(data)
 		if err != nil {
 			return err
 		}
-		// 此时才需检查目标类型支持，
-		// 因为NAT探测是类型无关的。
-		if !applPools.Supported(a.Kind) {
-			return ErrAppKind
-		}
 		appl4 := applPools.Appliers4(a.Kind)
 
-		if err = servicePunching(conn, punch, appl4, cfgUser.STUNPeerAmount); err != nil {
+		if err = servicePunching(a.Conn, punch, appl4, cfgUser.STUNPeerAmount); err != nil {
 			return err
 		}
+		// 先设置再入库，避免并发无值问题
 		a.SetLinkPeer(punch)
 
 		// 互助节点入库
@@ -183,6 +182,37 @@ func (a *Applier) process(data []byte, conn *websocket.Conn) error {
 			// 仅记录
 			log.Println("[Waring]", err)
 		}
+
+	// 执行UDP定向打洞协助
+	// - 无目标：登记入库，等待被检索。
+	// - 有目标：检索并执行打洞协助。
+	// 注意：
+	// 请求端与目标端的类别全名（kind:name）需要一致！
+	case base.COMMAND_PUNCH2:
+		amap, err := appMaps.Get(a.Kind)
+		if err != nil {
+			return err
+		}
+		key, peer, expire, err := stun.DecodePunchOne(data)
+		if err != nil {
+			return err
+		}
+		// 仅登记
+		if key == "" {
+			a.SetLinkPeer(peer)
+			key = peer.Key()
+			if expire < 0 {
+				expire = config.Punch2Expired
+			}
+			amap.Add(key, a, min(expire, config.Punch2Expired))
+			break
+		}
+		app := amap.Get(key)
+		if app == nil {
+			log.Printf("[Error] not find [%s] in AppMap.\n", key)
+			break
+		}
+		return punchingOne(a.Conn, peer, app)
 
 	// 消息不合规
 	default:
@@ -197,27 +227,27 @@ func (a *Applier) process(data []byte, conn *websocket.Conn) error {
 // 注意：
 // STUN:Cone 和 STUN:Sym 处理的连接（conn）并不是同一个客户端。
 // 这两者是离散的：只要检测到其请求，即可提供服务。
-func (a *Applier) simpleProcess(msg string, conn *websocket.Conn) error {
+func (a *Applier) simpleProcess(msg string) error {
 	switch msg {
 	// 请求TCP直连节点
 	case base.CmdAppsTCP:
-		return a.sendPeersTCP(conn, config.AppServerTCP)
+		return a.sendPeersTCP(a.Conn, config.AppServerTCP)
 
 	// STUN:Cone 主服务
 	case base.CmdStunCone:
-		return a.sendServInfo(conn, cfgUser.UDPListen, base.COMMAND_STUN_CONE, clientsUDP)
+		return a.sendServInfo(a.Conn, cfgUser.UDPListen, base.COMMAND_STUN_CONE, clientsUDP)
 
 	// STUN:Sym 副服务
 	case base.CmdStunSym:
-		return a.sendServInfo(conn, cfgUser.UDPListen, base.COMMAND_STUN_SYM, clientsUDP)
+		return a.sendServInfo(a.Conn, cfgUser.UDPListen, base.COMMAND_STUN_SYM, clientsUDP)
 
 	// STUN:Live NAT存活期探测
 	case base.CmdStunLive:
-		return a.sendServInfo(conn, cfgUser.UDPLiving, base.COMMAND_STUN_LIVE, clientsUDP)
+		return a.sendServInfo(a.Conn, cfgUser.UDPLiving, base.COMMAND_STUN_LIVE, clientsUDP)
 
 	// 连接内对端查询
 	case base.CmdFindPing:
-		return conn.WriteMessage(websocket.TextMessage, []byte(base.CmdFindOK))
+		return a.Conn.WriteMessage(websocket.TextMessage, []byte(base.CmdFindOK))
 
 	// 结束连接
 	case base.CmdFindBye:
@@ -492,6 +522,42 @@ func (cp AppliersPool) Clean(ctx context.Context, kinds []string, long time.Dura
 // 即池集支持的应用类型多少。
 func (cp AppliersPool) Size() int {
 	return len(cp)
+}
+
+//
+// 定向打洞支持
+//////////////////////////////////////////////////////////////////////////////
+
+// AppPool 应用端映射池
+// key: 应用类别（Base:Name）。
+type AppPool map[string]*AppMap
+
+// NewAppPool 创建一个连接映射池。
+// 根据传入的类别集创建。
+func NewAppPool(kinds []string) AppPool {
+	ap := make(map[string]*AppMap)
+
+	for _, kind := range kinds {
+		ap[kind] = NewAppMap()
+	}
+	return ap
+}
+
+// Get 获取目标类别的映射集。
+func (a AppPool) Get(kind string) (*AppMap, error) {
+	cmap, ok := a[kind]
+	if !ok {
+		return nil, ErrAppKind
+	}
+	return cmap, nil
+}
+
+// Supported 是否支持目标类别。
+func (a AppPool) Supported(kind string) bool {
+	if _, ok := a[kind]; ok {
+		return true
+	}
+	return false
 }
 
 //
