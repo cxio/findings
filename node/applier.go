@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"time"
 
@@ -60,7 +59,7 @@ func (a *Applier) SetLinkPeer(peer *LinkPeer) {
 // 注记：
 // 应用服务员只有服务进程，无对外连出。
 func (a *Applier) Server(ctx context.Context, notice chan<- *stun.Notice, client <-chan *stun.Client) {
-	log.Printf("A applier serve start [%s]\n", a.Node)
+	loger.Printf("A applier serve start [%s]\n", a.Node)
 	start := time.Now()
 top:
 	for {
@@ -76,12 +75,12 @@ top:
 			//1. 通过TCP链路告知其公网地址
 			app := clientsUDP.Get(cli.SN)
 			if app == nil {
-				log.Println("[Warning] the UDP Applier not found.")
+				loger.Println("[Warning] the UDP Applier not found.")
 				break
 			}
 			// 注意：由匹配的Applier发送
 			if err := app.SendPeerUDP(cli.Addr); err != nil {
-				log.Println("[Error]", err)
+				loger.Println("[Error]", err)
 			}
 			//2. 本地UDP发送 Listen, NewPort
 			notice <- stun.NewNotice(stun.UDPSEND_LOCAL, cli.Addr, cli.SN)
@@ -90,7 +89,7 @@ top:
 			//3. 由组网池随机节点请求NewHost协作
 			max := min(findings.Size(), xhostCount)
 			if max <= 0 {
-				log.Println("[Error]", ErrEmptyPool)
+				loger.Println("[Error]", ErrEmptyPool)
 				break
 			}
 			for _, finder := range findings.List(max) {
@@ -102,20 +101,20 @@ top:
 		default:
 			typ, msg, err := a.Conn.ReadMessage()
 			if err != nil {
-				log.Println("[Error] read message failed on", err)
+				loger.Println("[Error] read message failed on", err)
 				break top
 			}
 			switch typ {
 			// 简单指令
 			case websocket.TextMessage:
 				if err := a.simpleProcess(string(msg)); err != nil {
-					log.Println(err)
+					loger.Println(err)
 					break top
 				}
 			// 复合指令
 			case websocket.BinaryMessage:
 				if err := a.process(msg); err != nil {
-					log.Printf("[%s] finder service exited on %s\n", a.Node, err)
+					loger.Printf("[%s] finder service exited on %s\n", a.Node, err)
 					break top
 				}
 			}
@@ -125,7 +124,7 @@ top:
 	if a.LinkPeer != nil {
 		pool, err := applPools.Appliers(a.Kind, a.Level)
 		if err != nil {
-			log.Println("[Error]", err)
+			loger.Println("[Error]", err)
 			return
 		}
 		its := pool.Dispose(a.Conn)
@@ -133,7 +132,7 @@ top:
 			its.Quit()
 		}
 	}
-	log.Printf("[%s] applier served for %s\n", a.Node, time.Since(start))
+	loger.Printf("[%s] applier served for %s\n", a.Node, time.Since(start))
 }
 
 // 服务：单次读取处理。
@@ -180,7 +179,7 @@ func (a *Applier) process(data []byte) error {
 		// 互助节点入库
 		if err = appl4[punch.Level].Add(a); err != nil {
 			// 仅记录
-			log.Println("[Waring]", err)
+			loger.Println("[Waring]", err)
 		}
 
 	// 执行UDP定向打洞协助
@@ -209,7 +208,7 @@ func (a *Applier) process(data []byte) error {
 		}
 		app := amap.Get(key)
 		if app == nil {
-			log.Printf("[Error] not find [%s] in AppMap.\n", key)
+			loger.Printf("[Error] not find [%s] in AppMap.\n", key)
 			break
 		}
 		return punchingOne(a.Conn, peer, app)
@@ -416,7 +415,7 @@ func (a *Appliers) Clean(ctx context.Context, long time.Duration) {
 		its.Quit()
 		cnt++
 	}
-	log.Printf("Cleaning %d appliers took %s\n", cnt, time.Since(start))
+	loger.Printf("Cleaning %d appliers took %s\n", cnt, time.Since(start))
 }
 
 // Size 返回缓存池大小
@@ -491,7 +490,7 @@ func (cp AppliersPool) Appliers4(kind string) []*Appliers {
 	if p4, ok := cp[kind]; ok {
 		return p4[:]
 	}
-	log.Printf("The kind of [%s] not supported.\n", kind)
+	loger.Printf("The kind of [%s] not supported.\n", kind)
 	return nil
 }
 
@@ -592,7 +591,7 @@ func Online(conn *websocket.Conn, long time.Duration) error {
 // @return 下线返回true，反之为false
 func offline(conn *websocket.Conn, long time.Duration) bool {
 	if err := Online(conn, long); err != nil {
-		log.Println("node is unreachable on", err)
+		loger.Println("[Error] node is unreachable:", err)
 		return true
 	}
 	return false

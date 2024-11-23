@@ -1,6 +1,13 @@
-// 节点发现服务主程序。
+// Copyright (c) 2024 @cxio/blockchain
+// Released under the MIT license
+//////////////////////////////////////////////////////////////////////////////
+//
+// 节点发现服务
+// ------------
 // 节点相互连接构建为一个P2P网络，向应用类节点提供其同类节点的信息，
-// 同时也提供NAT类型侦测和STUN打洞服务。
+// 同时也支持NAT层级探查和STUN打洞服务（含定向打洞）。
+//
+// 另外也支持应用的TCP公网服务节点登记和分享。
 //
 // 候选池：
 // -------
@@ -11,23 +18,23 @@
 //
 // 组网池：
 // -------
-// 公网节点的当前连接池，仅支持TCP连接。
-// 池成员可能为其它公网类节点，也可能是受限节点，取决于连入的请求类型。
-// 当前节点除了提供基本的公网节点信息交换外，也提供STUN服务，可能需要池成员的配合。
+// 公网节点的当前连接池，Websocket（TCP）连接。
+// 池成员可能为其它公网类节点，也可能是受限节点（此时为连入）。
+// 当前节点除了维持Findings网络的运行外，也协助应用池的STUN探测服务。
 //
-// 受限连接池：
-// -----------
-// 受限节点的当前连接池，支持对外连出的TCP连接，以及通过UDP打洞服务获得的UDP连接。
-// TCP连出通常仅为了获取公网节点信息，以构建自己的公网节点清单。
-// TCP与UDP连接数量各占一半。
+// 应用池：
+// -------
+// 接受其它各类应用节点的连入，提供NAT探测和打洞服务。
+// 能提供打洞服务的Findings节点是公网节点，因为只有它们能直接接收连入。
 //
-// 节点信息：
-// ---------
-// - 应用类型：depots:[name] | blockchain:[name] | app:[name] | findings
-// - 连接协议：tcp | udp
-// - NAT 类型：Pub | FullC | RC | P-RC | Sym
-// - 公网地址：[IP]:[Port]
-// - 加密公钥：公钥:算法
+// 分享池：
+// --------
+// 接受各种应用的TCP可直连服务器登记，以及相应应用对其服务器信息的获取。
+//
+//////////////////////////////////////////////////////////////////////////////
+//
+
+// Findings 主程序。
 package main
 
 import (
@@ -57,11 +64,19 @@ var upgrader = websocket.Upgrader{
 // 服务器关闭等待
 var idleConnsClosed = make(chan struct{})
 
+// 程序退出延时
+// 注：部分协程里需要关闭文件。
+const idleAllExit = time.Second * 5
+
+// 便捷引用
+var loger = base.Log
+var logpeer = base.LogPeer
+
 func main() {
 	// 读取基础配置
 	cfg, err := config.Base()
 	if err != nil {
-		log.Fatalln("[Error] reading base config:", err)
+		loger.Fatalln("[Fatal] reading base config:", err)
 	}
 	if cfg.BufferSize > 0 {
 		upgrader.ReadBufferSize = cfg.BufferSize
@@ -71,37 +86,43 @@ func main() {
 	// 读取可用节点配置
 	peers, err := config.Peers()
 	if err != nil {
-		log.Fatalln("[Error] reading peers config:", err)
+		loger.Fatalln("[Fatal] reading peers config:", err)
 	}
 	// 恶意节点清单
 	bans, err := config.Bans()
 	if err != nil {
-		log.Fatalln("[Error] reading ban list:", err)
+		loger.Fatalln("[Fatal] reading ban list:", err)
 	}
 
 	// 服务器权益账户
-	// 注意：赋值到全局变量上。
-	stakePool, err := config.Services()
+	stakes, err := config.Stakes()
 	if err != nil {
-		log.Fatalln("[Error] reading stakes of server:", err)
+		loger.Fatalln("[Fatal] reading stakes of server:", err)
 	}
 	// 上下文环境
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+
+	// 日志初始化：
+	// base.[Log, LogPeer, LogDebug]
+	base.LogsInit(ctx, cfg.LogDir)
 
 	// 向外寻找 Finder
 	chpeer, done := ips.Finding(ctx, cfg.RemotePort, peers, cfg.PeerFindRange)
 
 	// 节点模块初始化
-	node.Init(ctx, cfg, stakePool, chpeer, done)
+	node.Init(ctx, cfg, stakes, chpeer, done)
 
 	// 恶意节点监察
 	go serverBans(ctx, bans, node.BanAddto, node.BanQuery)
 
-	// 启动服务主进程
+	// 阻塞：启动服务
 	serviceListen(cfg.ServerPort)
+	cancel()
 
-	log.Println("Findings service EXIT.")
+	log.Println("Waiting a moment for server to exit...")
+	<-time.After(idleAllExit)
+
+	loger.Println("Findings service EXIT.")
 }
 
 //
@@ -115,7 +136,7 @@ func main() {
 func serviceListen(port int) {
 	cert, err := selfsign.GenerateSelfSigned25519()
 	if err != nil {
-		log.Fatalln("[Error] generate self-signed certificate failed:", err)
+		loger.Fatalln("[Fatal] generate self-signed certificate failed:", err)
 	}
 	// 创建TLS配置
 	config := &tls.Config{
@@ -130,7 +151,7 @@ func serviceListen(port int) {
 		Addr:      fmt.Sprintf(":%d", port),
 		TLSConfig: config,
 	}
-	log.Println("Server is running on port", port)
+	loger.Println("Server is running on port", port)
 
 	// 用户中断监听，友好关闭
 	go func() {
@@ -139,20 +160,20 @@ func serviceListen(port int) {
 		<-sigint
 		// 关闭提示...
 		go func() {
-			log.Print("Shutting down the server")
+			loger.Print("Shutting down the server")
 			for {
 				fmt.Print(".")
 				<-time.After(time.Second)
 			}
 		}()
 		if err := server.Shutdown(context.TODO()); err != nil {
-			log.Println("[Error] server shutdown:", err)
+			loger.Println("[Error] server shutdown:", err)
 		}
 		close(idleConnsClosed)
 	}()
-	// 启动服务器
+	// 阻塞：服务器运行
 	if err = server.ListenAndServeTLS("", ""); err != http.ErrServerClosed {
-		log.Fatalln("[Error] starting server:", err)
+		loger.Fatalln("[Fatal] starting server:", err)
 	}
 
 	// 等待完全关闭
@@ -173,7 +194,7 @@ func serviceListen(port int) {
 // 除了用户外部配置的外，恶意节点仅为即时存在，并不存储。
 // 因为如果程序退出，新连接的节点已经变化。
 func serverBans(ctx context.Context, bans map[string]time.Time, banAddto chan string, banQuery chan *node.Banner) {
-	log.Println("Start peer banning server.")
+	loger.Println("Start peer banning server.")
 loop:
 	for {
 		select {
@@ -190,7 +211,7 @@ loop:
 			if time.Now().After(tm.Add(config.BanExpired)) {
 				delete(bans, ban.Addr)
 				ban.Close()
-				log.Println("Remove a ban peer:", ban.Addr)
+				logpeer.Println("remove a banned peer:", ban.Addr)
 				break
 			}
 			// 禁闭中
@@ -198,12 +219,12 @@ loop:
 			ban.Close()
 
 		// 添加新禁闭
-		case ip := <-banAddto:
-			bans[ip] = time.Now()
-			log.Println("Add a ban peer in pool:", ip)
+		case addr := <-banAddto:
+			bans[addr] = time.Now()
+			logpeer.Println("add a banned peer:", addr)
 		}
 	}
-	log.Println("Peer banning server exit.")
+	loger.Println("Peer banning server exit.")
 }
 
 // 连接处理器
@@ -222,7 +243,7 @@ loop:
 func handleConnect(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println("[Error] upgrade websocket:", err)
+		loger.Println("[Error] upgrade websocket:", err)
 		return
 	}
 	defer conn.Close()
@@ -230,7 +251,7 @@ func handleConnect(w http.ResponseWriter, r *http.Request) {
 	// 初始信息读取
 	typ, msg, err := conn.ReadMessage()
 	if err != nil {
-		log.Println("[Error] reading message:", err)
+		loger.Println("[Error] reading message:", err)
 		return
 	}
 	switch typ {
@@ -238,30 +259,30 @@ func handleConnect(w http.ResponseWriter, r *http.Request) {
 	// 视为临时连接，即时关闭。
 	case websocket.TextMessage:
 		if string(msg) != base.CmdFindPing {
-			log.Println("[Error] first message not ping.")
+			loger.Println("[Error] first message not ping.")
 			http.Error(w, "First message invalid", http.StatusBadRequest)
 			break
 		}
 		if err = conn.WriteMessage(websocket.TextMessage, []byte(base.CmdFindOK)); err != nil {
-			log.Println("[Error] write websocket:", err)
+			loger.Println("[Error] write websocket:", err)
 			http.Error(w, "First message invalid", http.StatusInternalServerError)
 		}
 	// 节点声明：
 	case websocket.BinaryMessage:
 		cmd, data, err := base.DecodeProto(msg)
 		if err != nil {
-			log.Println("[Error] decoding protobuf data:", err)
+			loger.Println("[Error] decoding protobuf data:", err)
 			http.Error(w, "Decoding data failed", http.StatusInternalServerError)
 			break
 		}
 		if cmd != base.COMMAND_KIND {
-			log.Println("[Error] first command is bad.")
+			loger.Println("[Error] first command is bad.")
 			http.Error(w, "First command is bad", http.StatusInternalServerError)
 			break
 		}
 		kind, err := base.DecodeKind(data)
 		if err != nil {
-			log.Println("[Error] decode kind on", err)
+			loger.Println("[Error] decode kind on", err)
 			http.Error(w, "Decode kind failed", http.StatusBadRequest)
 			break
 		}

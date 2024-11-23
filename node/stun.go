@@ -2,7 +2,6 @@ package node
 
 import (
 	"errors"
-	"log"
 	"sync"
 
 	"github.com/cxio/findings/base"
@@ -211,7 +210,7 @@ func punchingPush(conn *websocket.Conn, dir string, punch *LinkPeer, cmd base.Co
 	}
 	// 传送到对端
 	if err = conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
-		log.Println("[Error] send punch's data.")
+		loger.Println("[Error] send punch's data.")
 	}
 	return err
 }

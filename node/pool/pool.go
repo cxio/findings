@@ -16,10 +16,10 @@ package pool
 import (
 	"context"
 	"errors"
-	"log"
 	"math/rand"
 	"sync"
 
+	"github.com/cxio/findings/base"
 	"golang.org/x/tools/container/intsets"
 )
 
@@ -30,6 +30,9 @@ var (
 	// 无匹配错误
 	ErrMatched = errors.New("not matched item in pool")
 )
+
+// 便捷引用
+var loger = base.Log
 
 // Pool 泛型池。
 // 成员约束为指针类型，避免申请过大的初始空间。
@@ -333,7 +336,7 @@ func Clean[T any](ctx context.Context, p *Pool[T], test func(*T) bool) <-chan *T
 					continue
 				}
 				if err != nil {
-					log.Printf("Clean pool error on %s with [%s].", err, its)
+					loger.Printf("[Error] Clean pool on %s with [%s].", err, its)
 				}
 				ch <- its
 			}
@@ -454,7 +457,7 @@ func checkx[T any](p *Pool[T], test func(*T) bool, cnt <-chan struct{}, out chan
 		out <- its
 	}
 	if err != nil {
-		log.Printf("Clean pool error on %s with [%s].\n", err, its)
+		loger.Printf("[Error] Clean pool on %s with [%s].\n", err, its)
 	}
 	<-cnt // 释放外部计量
 }
@@ -583,8 +586,9 @@ func customPerm(n, max int) []int {
 	var list []int
 	var iset intsets.Sparse
 
+	// 断言：外部必须满足
 	if n > max {
-		log.Fatalln("[Fatal] count large than max.")
+		loger.Fatalln("[Fatal] count large than max.")
 	}
 	for i := 0; i < n; {
 		x := rand.Intn(max)

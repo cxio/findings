@@ -1,7 +1,6 @@
 package ips
 
 import (
-	"log"
 	"math/rand"
 	"net/netip"
 )
@@ -47,7 +46,7 @@ func randomAddrs(size int) []netip.Addr {
 // @size 前后搜寻的最大半径
 func rangeAddrs(ip netip.Addr, size int) []netip.Addr {
 	if !isAvailable(ip) {
-		log.Printf("Error IP{%s} is unavailable", ip)
+		loger.Printf("[Error] IP{%s} is unavailable", ip)
 		return nil
 	}
 	list := make([]netip.Addr, 0, size*2)

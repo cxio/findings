@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"net/netip"
@@ -39,6 +38,10 @@ const (
 	cleanSize      = 10               // 分享池单次清理量
 	defaultTimeout = time.Second * 30 // 默认超时时间
 )
+
+// 便捷引用
+var loger = base.Log
+var logpeer = base.LogPeer
 
 // 私有全局变量
 var (
@@ -85,10 +88,10 @@ var (
 // 根据传入的配置，初始化一些全局变量，启动部分内置全局服务。
 // @ctx 全局上下文
 // @cfg 用户配置集
-// @stake 支持的“服务:权益地址”集
+// @stakes 支持的“服务:权益地址”集
 // @chpeer 广域搜索节点递送通道
 // @done 广域搜索终止通知
-func Init(ctx context.Context, cfg *config.Config, stake map[string]string, chpeer <-chan *config.Peer, done chan<- struct{}) {
+func Init(ctx context.Context, cfg *config.Config, stakes map[string]string, chpeer <-chan *config.Peer, done chan<- struct{}) {
 	cfgUser = cfg
 	findings = NewFinders(cfg.Findings)
 	shortList = NewShortlist(cfg.Shortlist)
@@ -109,14 +112,14 @@ func Init(ctx context.Context, cfg *config.Config, stake map[string]string, chpe
 	if cfg.STUNClient {
 		client, err := natx.ListenUDP(ctx)
 		if err != nil {
-			log.Fatalln("Create Client:UDP failed on", err)
+			loger.Fatalln("[Fatal] create Client:UDP failed:", err)
 		}
 		clientUDP = client
 	}
 
 	// 服务:权益地址
-	stakePool = stake
-	serviceKinds = serviceList(stake)
+	stakePool = stakes
+	serviceKinds = serviceList(stakes)
 
 	// 应用支持
 	applPools = NewAppliersPool()
@@ -166,7 +169,7 @@ func ProcessOnKind(kind *base.Kind, conn *websocket.Conn, w http.ResponseWriter)
 	// 对端信息
 	node := NewWithAddr(conn.RemoteAddr())
 	if node == nil {
-		log.Println("[Error] unknown remote addr type.")
+		loger.Println("[Error] unknown remote addr type.")
 		return
 	}
 	switch kind.Seek {
@@ -176,12 +179,12 @@ func ProcessOnKind(kind *base.Kind, conn *websocket.Conn, w http.ResponseWriter)
 		list := shortList.List(cfgUser.PeersHelp)
 		// 如果候选池为空，没有回复。
 		if list == nil {
-			log.Println("[Error]", ErrEmptyPool)
+			loger.Println("[Error]", ErrEmptyPool)
 			break
 		}
 		// 推送一些Findings节点。
 		if err := findingsPush(conn, list, base.COMMAND_HELP); err != nil {
-			log.Println("Error", err)
+			loger.Println("Error", err)
 			http.Error(w, "Some internal errors", http.StatusInternalServerError)
 		}
 
@@ -191,7 +194,7 @@ func ProcessOnKind(kind *base.Kind, conn *websocket.Conn, w http.ResponseWriter)
 	// 用户需要首先知道哪些Finder支持自己所属的应用。
 	case base.SEEK_KINDAPP:
 		if err := findingsKinds(conn, serviceKinds, base.COMMAND_KINDLIST); err != nil {
-			log.Println("[Error] put service kinds:", err)
+			loger.Println("[Error] put service kinds:", err)
 		}
 
 	// only findings
@@ -199,13 +202,13 @@ func ProcessOnKind(kind *base.Kind, conn *websocket.Conn, w http.ResponseWriter)
 	case base.SEEK_FINDNET:
 		if findings.IsFulled() {
 			http.Error(w, "Too many connections", http.StatusTooManyRequests)
-			log.Printf("Finder pool is fulled when [%s] join.\n", conn.RemoteAddr())
+			loger.Printf("Finder pool is fulled when [%s] join.\n", conn.RemoteAddr())
 			break
 		}
 		finder := NewFinder(node, conn, clientUDP)
 
 		if err := findings.Add(finder); err != nil {
-			log.Println("[Error] Add finder into pool but", err)
+			loger.Println("[Error] Add finder into pool but", err)
 			break
 		}
 		// 阻塞：向当前组网节点提供服务
@@ -224,7 +227,7 @@ func ProcessOnKind(kind *base.Kind, conn *websocket.Conn, w http.ResponseWriter)
 		stake := serviceStake(kname)
 		if stake != "" {
 			if err := writeStake(conn, cfgUser.UserID, stake); err != nil {
-				log.Println("[Error]", err)
+				loger.Println("[Error]", err)
 				break
 			}
 		}
@@ -241,17 +244,17 @@ func ProcessOnKind(kind *base.Kind, conn *websocket.Conn, w http.ResponseWriter)
 	case base.SEEK_PEERTCP:
 		store, err := tcpStores.TCPStore(base.KindName(kind.Base, kind.Name))
 		if err != nil {
-			log.Println("[Error]", err)
+			loger.Println("[Error]", err)
 			http.Error(w, err.Error(), http.StatusForbidden)
 			break
 		}
 		if err = registerTCPStore(conn, store); err != nil {
-			log.Println("[Error]", err)
+			loger.Println("[Error]", err)
 			conn.WriteMessage(websocket.TextMessage, []byte(err.Error()))
 		}
 
 	default:
-		log.Println(ErrSendIllegal)
+		loger.Println(ErrSendIllegal)
 		http.Error(w, "unknown seed type.", http.StatusBadRequest)
 	}
 }
@@ -291,7 +294,7 @@ func NewWithAddr(addr net.Addr) *Node {
 func NewFromPeer(p *Peer) *Node {
 	ip, ok := netip.AddrFromSlice(p.Ip)
 	if !ok {
-		log.Println("Error from parse Peer's ip:", p)
+		loger.Println("[Error] parse Peer's ip:", p)
 		return nil
 	}
 	return &Node{IP: ip, Port: int(p.Port), Start: time.Now()}
@@ -312,7 +315,7 @@ func (n *Node) Hello(long time.Duration) bool {
 	}
 	defer conn.Close()
 
-	log.Printf("Successfully connected to %s\n", ipp)
+	loger.Printf("successfully connected to %s\n", ipp)
 	return true
 }
 
@@ -349,6 +352,9 @@ func (n *Node) Online(long time.Duration) error {
 	}
 	n.Start = start
 	n.Ping = time.Since(start)
+
+	// 有效节点记录（用户友好）
+	logpeer.Printf("connected on websocket: %s:%d\n", n.IP, n.Port)
 
 	return nil
 }
@@ -435,9 +441,9 @@ func (s *Shortlist) Clean(ctx context.Context) {
 	out := pool.Clean(ctx, &s.pool, test)
 
 	for its := range out {
-		log.Printf("[%s] was cleaned from Shortlist\n", its)
+		loger.Printf("[%s] was cleaned from Shortlist\n", its)
 	}
-	log.Printf("Cleaning the shortlist took %s\n", time.Since(start))
+	loger.Printf("cleaning the shortlist took %s\n", time.Since(start))
 }
 
 // IsFulled 池是否已满员。
@@ -533,7 +539,7 @@ func (t *TCPStore) List(count int) []*Node {
 // 注意！仅在池满时使用。
 func (t *TCPStore) cleanFulled() {
 	if len(t.queue) != t.maxSize {
-		log.Fatalln("TCPStore not fulled.")
+		loger.Fatalln("[Fatal] TCPStore not fulled.")
 	}
 	end := t.maxSize - t.count
 
@@ -592,7 +598,7 @@ func (tp TCPStorePool) Supported(kind string) bool {
 // @pool 组网池
 // @list 候选池
 func serverPeers(ctx context.Context, chin <-chan *config.Peer, done chan<- struct{}, pool *Finders, list *Shortlist) {
-	log.Println("First peers help server start.")
+	loger.Println("First peers help server start.")
 	defer close(done)
 loop:
 	for {
@@ -605,13 +611,13 @@ loop:
 				break loop
 			}
 			if err := findingsHelp(peer, -1, list, BanAddto); err != nil {
-				log.Printf("[Error] first help from [%s] failed on %s.", peer, err)
+				loger.Printf("[Error] first help from [%s] failed on %s.", peer, err)
 			}
 			// 触发组网池补充操作。
 			go finderReplenish(ctx, pool, list, BanAddto)
 		}
 	}
-	log.Println("First peers help server exited.")
+	loger.Println("First peers help server exited.")
 }
 
 // 候选池巡查服务。
@@ -620,7 +626,7 @@ loop:
 // @list 候选池
 // @dur 巡查时间间隔（完成->开始）
 func serverShortlist(ctx context.Context, list *Shortlist, dur time.Duration) {
-	log.Println("Start shortlist online patrol server.")
+	loger.Println("Start shortlist online patrol server.")
 	// 友好：
 	// 初始可能并没有多少节点入池。
 	time.Sleep(time.Minute * 20)
@@ -634,7 +640,7 @@ loop:
 			list.Clean(ctx)
 		}
 	}
-	log.Println("Shortlist patrol server exited.")
+	loger.Println("Shortlist patrol server exited.")
 }
 
 // Finder巡查服务
@@ -651,7 +657,7 @@ loop:
 // @list 候选池（备用节点）
 // @dur 巡查时间间隔（完成->开始）
 func serverFinders(ctx context.Context, pool *Finders, list *Shortlist, dur time.Duration) {
-	log.Println("Start finders patrol server.")
+	loger.Println("Start finders patrol server.")
 	// 友好：
 	// 初始可能并没有多少节点入池。
 	time.Sleep(time.Minute * 20)
@@ -666,7 +672,7 @@ loop:
 			// 分享出错会简单忽略，打印出错消息后续继续。
 			if its := pool.Get(); its != nil {
 				if err := finderShare(its, list, BanAddto); err != nil {
-					log.Println("[Error] Finder share peers failed:", err)
+					loger.Println("[Error] Finder share peers failed:", err)
 				}
 			}
 			// 更新|补足（隐含分享）
@@ -677,7 +683,7 @@ loop:
 			finderReplenish(ctx, pool, list, BanAddto)
 		}
 	}
-	log.Println("Finders patrol server exited.")
+	loger.Println("Finders patrol server exited.")
 }
 
 // 应用端连接池巡查服务
@@ -687,7 +693,7 @@ loop:
 // @dur 巡查间隔时间（上次巡查完到本次开始）
 // @kinds 类别名称序列
 func serverPatrol(ctx context.Context, pools AppliersPool, dur time.Duration, kinds []string) {
-	log.Println("Start client pools patrol server.")
+	loger.Println("Start client pools patrol server.")
 	// 友好：
 	// 初始可能并没有多少节点入池。
 	time.Sleep(time.Minute * 30)
@@ -701,7 +707,7 @@ loop:
 			pools.Clean(ctx, kinds, config.ApplierExpired)
 		}
 	}
-	log.Println("applier pools patrol server exit.")
+	loger.Println("Applier pools patrol server exit.")
 }
 
 // 定向打洞目标暂存池巡查服务
@@ -711,7 +717,7 @@ loop:
 // @dur 巡查周期
 // @kinds 类别名称序列
 func serverPunch2(ctx context.Context, pool AppPool, dur time.Duration, kinds []string) {
-	log.Println("Start punch maps clean server.")
+	loger.Println("Start punch maps clean server.")
 	// 友好：
 	time.Sleep(time.Minute * 30)
 loop:
@@ -724,14 +730,14 @@ loop:
 			for _, kind := range kinds {
 				amap, err := pool.Get(kind)
 				if err != nil {
-					log.Println("[Error]", err)
+					loger.Println("[Error]", err)
 					continue
 				}
 				amap.Clean()
 			}
 		}
 	}
-	log.Println("puhch maps clean server exit.")
+	loger.Println("Puhch maps clean server exit.")
 }
 
 //
@@ -742,16 +748,16 @@ loop:
 func findingsKinds(conn *websocket.Conn, list []*base.Kind, cmd base.Command) error {
 	data, err := base.EncodeServKinds(list)
 	if err != nil {
-		log.Println("[Error] encoding service kinds.")
+		loger.Println("[Error] encoding service kinds.")
 		return err
 	}
 	data, err = base.EncodeProto(cmd, data)
 	if err != nil {
-		log.Println("[Error] encoding protodata.")
+		loger.Println("[Error] encoding protodata.")
 		return err
 	}
 	if err = conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
-		log.Println("[Error] send service kinds message.")
+		loger.Println("[Error] send service kinds message.")
 		return err
 	}
 	return nil
@@ -811,11 +817,11 @@ func finderUpdate(pool *Finders, list *Shortlist, aban chan<- string) error {
 	for {
 		new, err = createFinder(list)
 		if err != nil {
-			log.Println("[Error] create finder.")
+			loger.Println("[Error] create finder.")
 			return err
 		}
 		if err = finderShare(new, list, aban); err != nil {
-			log.Println("[Error] finder first share peers.")
+			loger.Println("[Error] finder first share peers.")
 			continue
 		}
 		break
@@ -877,7 +883,7 @@ func serviceList(stake map[string]string) []*base.Kind {
 		kn, err := base.Name2Kind(name, "")
 
 		if err != nil {
-			log.Println("[Error] parse kind on", err)
+			loger.Println("[Error] parse kind on", err)
 			continue
 		}
 		list = append(list, kn)

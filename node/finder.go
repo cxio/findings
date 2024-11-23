@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/netip"
 	"net/url"
@@ -111,7 +110,7 @@ func (f *Finder) Client(ctx context.Context, notice chan<- *stun.Notice) {
 // @ctx 当前服务进程上下文
 // @notice 本地UDP服务器协助通知通道（NewHost）
 func (f *Finder) serve(ctx context.Context, notice chan<- *stun.Notice) {
-	log.Printf("A finder listen start [%s]\n", f.Node)
+	loger.Printf("A finder listen start [%s]\n", f.Node)
 	start := time.Now()
 top:
 	for {
@@ -125,30 +124,30 @@ top:
 		case cli := <-f.xhost:
 			data, err := hostoData(cli)
 			if err != nil {
-				log.Println("[Error]", err)
+				loger.Println("[Error]", err)
 				break
 			}
 			if err = f.Conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
-				log.Println("[Error]", err)
+				loger.Println("[Error]", err)
 			}
 
 		default:
 			typ, msg, err := f.Conn.ReadMessage()
 			if err != nil {
-				log.Println("[Error] read message failed on", err)
+				loger.Println("[Error]", err)
 				break top
 			}
 			switch typ {
 			// 简单指令
 			case websocket.TextMessage:
 				if err := f.simpleProcess(string(msg), f.Conn); err != nil {
-					log.Println(err)
+					loger.Println("[Error]", err)
 					break top
 				}
 			// 复合指令
 			case websocket.BinaryMessage:
 				if err := f.process(msg, f.Conn, notice); err != nil {
-					log.Printf("[%s] finder service exited on %s\n", f.Node, err)
+					loger.Printf("[%s] finder service exited on %s\n", f.Node, err)
 					break top
 				}
 			}
@@ -162,7 +161,7 @@ top:
 	// 触发补充检查
 	finderReplenish(ctx, findings, shortList, BanAddto)
 
-	log.Printf("[%s] finder served for %s\n", f.Node, time.Since(start))
+	loger.Printf("[%s] finder served for %s\n", f.Node, time.Since(start))
 }
 
 // 服务：单次处理。
@@ -186,7 +185,7 @@ func (f *Finder) process(data []byte, conn *websocket.Conn, notice chan<- *stun.
 		go func() {
 			// 接收：在线测试耗时，独立处理。
 			if err := findingsGets(data, shortList, BanQuery); err != nil {
-				log.Println("[Error] get peers from client:", err)
+				loger.Println("[Error] get peers from client:", err)
 			}
 		}()
 		nodes := shortList.List(config.SomeFindings)
@@ -200,7 +199,7 @@ func (f *Finder) process(data []byte, conn *websocket.Conn, notice chan<- *stun.
 	case base.COMMAND_STUN_HOST:
 		addr, sn, err := stun.DecodeHosto(data)
 		if err != nil {
-			log.Println("[Error] decode Hosto:", err)
+			loger.Println("[Error] decode Hosto:", err)
 			return err
 		}
 		// 本地UDP服务器协作
@@ -255,14 +254,14 @@ func (f *Finder) process(data []byte, conn *websocket.Conn, notice chan<- *stun.
 	case base.COMMAND_STAKE:
 		_, stake, err := base.DecodeStake(data)
 		if err != nil {
-			log.Println("[Error]", err)
+			loger.Println("[Error]", err)
 		}
-		// Only this
-		log.Println("Server stake address:", stake)
+		// 仅打印
+		loger.Println("Server stake address:", stake)
 
-	// 消息不合规：仅打印到日志，容忍。
+	// 容忍：消息不合规，仅打印。
 	default:
-		log.Println(ErrSendIllegal)
+		loger.Println("[Error]", ErrSendIllegal)
 	}
 	return nil
 }
@@ -332,7 +331,7 @@ func (f *Finder) NatLevel() (NatLevel, error) {
 	if err != nil {
 		return NAT_LEVEL_ERROR, err
 	}
-	log.Printf("Send STUN:Cone request [%s].\n", f.Node)
+	loger.Printf("Send STUN:Cone request [%s].\n", f.Node)
 
 	// 若成功
 	if lev := <-f.udper.LevCone; lev < NAT_LEVEL_PRCSYM {
@@ -360,7 +359,7 @@ func (f *Finder) natLevel(src *net.UDPAddr) (NatLevel, error) {
 		return NAT_LEVEL_ERROR, err
 	}
 	f.udper.SetCmpAddr(src)
-	log.Printf("Send STUN:Sym request [%s].\n", f.Node)
+	loger.Printf("Send STUN:Sym request [%s].\n", f.Node)
 
 	return <-f.udper.LevSym, nil
 }
@@ -376,7 +375,7 @@ func (f *Finder) NatLive() (time.Duration, error) {
 	if err != nil {
 		return -1, err
 	}
-	log.Printf("Send STUN:Live request [%s].\n", f.Node)
+	loger.Printf("Send STUN:Live request [%s].\n", f.Node)
 
 	return <-f.udper.Live, nil
 }
@@ -499,7 +498,7 @@ func findingsGets(data []byte, pool *Shortlist, qban chan *Banner) error {
 	// 合并后再去重
 	n := pool.Unique()
 	if n > 0 {
-		log.Printf("There are %d duplicates in pool.\n", n)
+		loger.Printf("There are %d duplicates in pool.\n", n)
 	}
 	return nil
 }
@@ -512,16 +511,16 @@ func findingsGets(data []byte, pool *Shortlist, qban chan *Banner) error {
 func findingsPush(conn *websocket.Conn, list []*Node, cmd base.Command) error {
 	data, err := EncodePeers(list)
 	if err != nil {
-		log.Println("[Error] encoding findings peers.")
+		loger.Println("[Error] encoding findings peers.")
 		return err
 	}
 	data, err = base.EncodeProto(cmd, data)
 	if err != nil {
-		log.Println("[Error] encoding protodata.")
+		loger.Println("[Error] encoding protodata.")
 		return err
 	}
 	if err = conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
-		log.Println("[Error] send peers message.")
+		loger.Println("[Error] send peers message.")
 		return err
 	}
 	return nil
@@ -534,7 +533,7 @@ func findingsPush(conn *websocket.Conn, list []*Node, cmd base.Command) error {
 // @list 候选池
 // @aban 添加禁闭地址的通道
 func finderReplenish(ctx context.Context, pool *Finders, list *Shortlist, aban chan<- string) {
-	log.Println("Replenish the finder pool...")
+	loger.Println("Replenish the finder pool...")
 	start := time.Now()
 
 	for {
@@ -543,21 +542,21 @@ func finderReplenish(ctx context.Context, pool *Finders, list *Shortlist, aban c
 		}
 		new, err := createFinder(list)
 		if err != nil {
-			log.Println("[Error] create finder:", err)
+			loger.Println("[Error] create finder:", err)
 			break
 		}
 		if err = finderShare(new, list, aban); err != nil {
-			log.Println("[Error] finder share peers:", err)
+			loger.Println("[Error] finder share peers:", err)
 			continue
 		}
 		if err = pool.Add(new); err != nil {
-			log.Println("[Error] add applier into pool:", err)
+			loger.Println("[Error] add applier into pool:", err)
 			break
 		}
 		new.Client(ctx, stunNotice)
 	}
 
-	log.Println("Replenish finder pool done took", time.Since(start))
+	loger.Println("Replenish finder pool done took", time.Since(start))
 }
 
 // 组网池成员信息分享
@@ -578,7 +577,7 @@ func finderShare(finder *Finder, list *Shortlist, aban chan<- string) error {
 	}
 	// 接收分享回馈
 	if err = receivePeers(finder.Conn, list, base.COMMAND_PEER); err != nil {
-		log.Println("[Error] receive shared peers.")
+		loger.Println("[Error] receive shared peers.")
 		// 加入黑名单
 		// 理由：在线且可正常接收数据，但无法提供正常的服务。
 		node := NewWithAddr(
@@ -670,7 +669,7 @@ func Onlines(nodes []*Node, long time.Duration) []*Node {
 
 			if err := node.Online(long); err != nil {
 				node.Ping = -1
-				log.Printf("[%s] is unreachable because %s\n", node, err)
+				loger.Printf("[%s] is unreachable because %s\n", node, err)
 				return
 			}
 			node.Ping = time.Since(start)
@@ -702,7 +701,7 @@ func createFinder(pool *Shortlist) (*Finder, error) {
 		conn, err := WebsocketDial(its.IP, its.Port, 0)
 
 		if err != nil {
-			log.Println("[Error] shortlist node was offline:", err)
+			loger.Println("[Error] shortlist node was offline:", err)
 			continue
 		}
 		// 注记：
@@ -724,7 +723,7 @@ func filterBanned(nodes []*Node, qban chan *Banner) []*Node {
 		qban <- bq
 
 		if <-bq.Reply {
-			log.Println("[Warning] The banned node: ", bq.Addr)
+			loger.Println("[Warning] The banned node: ", bq.Addr)
 			continue
 		}
 		buf = append(buf, node)

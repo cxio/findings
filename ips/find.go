@@ -2,11 +2,11 @@ package ips
 
 import (
 	"context"
-	"log"
 	"net/netip"
 	"sync"
 	"time"
 
+	"github.com/cxio/findings/base"
 	"github.com/cxio/findings/config"
 	"github.com/cxio/findings/node"
 )
@@ -15,6 +15,9 @@ const (
 	randomAmount  = 50                     // 批量随机节点集大小
 	bringInterval = time.Millisecond * 400 // 并发测试创建间隔（避免系统负荷急增）
 )
+
+// 便捷引用
+var loger = base.Log
 
 // Finding 对外寻找节点尝试连接
 // 会优先尝试外部提供的节点清单，如果无果则进入随机尝试（漫长）。
@@ -27,7 +30,7 @@ const (
 // @return1 有效节点递送通道
 // @return2 结束搜寻通知机制（通道）
 func Finding(ctx context.Context, port int, peers map[netip.Addr]*config.Peer, size int) (<-chan *config.Peer, chan<- struct{}) {
-	log.Println("Start searching findings peers...")
+	loger.Println("Start searching findings peers...")
 
 	// 节点输出
 	out := make(chan *config.Peer, 1)
@@ -49,10 +52,10 @@ func Finding(ctx context.Context, port int, peers map[netip.Addr]*config.Peer, s
 		for _, peer := range peers {
 			select {
 			case <-ctx.Done():
-				log.Println("Break search on context EXIT.")
+				loger.Println("Break search on context EXIT.")
 				return
 			case <-done:
-				log.Println("Peers searching completed successfully.")
+				loger.Println("Peers searching completed successfully.")
 				return
 			default:
 				list := peerList(
@@ -73,10 +76,10 @@ func Finding(ctx context.Context, port int, peers map[netip.Addr]*config.Peer, s
 		for {
 			select {
 			case <-ctx.Done():
-				log.Println("Break search on context EXIT.")
+				loger.Println("Break search on context EXIT.")
 				return
 			case <-done:
-				log.Println("Peers searching completed successfully.")
+				loger.Println("Peers searching completed successfully.")
 				return
 			default:
 				ips := randomAddrs(randomAmount)
@@ -88,7 +91,7 @@ func Finding(ctx context.Context, port int, peers map[netip.Addr]*config.Peer, s
 		}
 	}()
 
-	log.Println("End peers search service.")
+	loger.Println("End peers search service.")
 	return out, done
 }
 
@@ -111,18 +114,18 @@ loop:
 			nd := node.New(p.IP, int(p.Port))
 
 			if err := nd.Online(long); err != nil {
-				log.Printf("[%s] is unreachable on %s.\n", p, err)
+				loger.Printf("[%s] is unreachable on %s.\n", p, err)
 				return
 			}
 			chout <- p
-			log.Printf("[%s] is validly.", p)
+			loger.Printf("[%s] is validly.", p)
 		}(peer)
 
 		select {
 		case <-ctx.Done():
 			break loop
 		case <-done:
-			log.Println("Peers searching completed successfully.")
+			loger.Println("Peers searching completed successfully.")
 			break loop
 		// 适当停顿
 		case <-time.After(bringInterval):

@@ -1,10 +1,19 @@
 // Copyright 2024 of chainx.zh@gmail.com, All rights reserved.
 // Use of this source code is governed by a MIT license.
 // ---------------------------------------------------------------------------
-// 基础配置集。
+// 基础配置集
+// ----------
 // 部分可由用户外部JSON配置修改，部分为程序内置值。
+// 大部分配置文件存放于用户主目录下的 .findings/ 之内。
 //
-// @2024.05.14 cxio
+// 禁闭节点
+// --------
+// 程序运行过程中，不友好节点会被临时禁闭排除。
+// 用户也可以配置一个节点清单，但它们也遵循同样的时效期。
+// 禁闭配置文件（bans.json）在应用程序系统缓存目录下，如果不存在可手工创建。
+// 内容为简单的地址（IP:Port）清单。
+//
+// @2024.11.23 cxio
 ///////////////////////////////////////////////////////////////////////////////
 //
 
@@ -12,13 +21,8 @@
 package config
 
 import (
-	"encoding/json"
 	"net/netip"
-	"os"
-	"path/filepath"
 	"time"
-
-	"github.com/hjson/hjson-go"
 )
 
 // 基本配置常量。
@@ -60,9 +64,18 @@ const (
 	AppName = "z"        // 本服务实现名
 )
 
+// 几个配置文件
+// 大部分在用户主目录内的.findings/子目录下。
+const (
+	fileDir    = ".findings"    // 配置文件目录
+	fileConfig = "config.hjson" // 基础配置文件
+	filePeers  = "peers.json"   // 有效节点清单
+	fileStakes = "stakes.hjson" // 服务器权益账户配置
+	fileBans   = "bans.json"    // 禁闭节点配置
+)
+
 // 日志文件名
 const (
-	LogsDirname  = "logs"         // 默认日志根目录
 	LogFile      = "findings.log" // 主程序日志
 	LogPeerFile  = "peers.log"    // 有效连接节点历史
 	LogDebugFile = "debug.log"    // 调试日志
@@ -105,143 +118,4 @@ type Config struct {
 	STUNPeerAmount int    `json:"stun_peer_amount"`      // 打洞协助连接节点数
 	STUNLiving     bool   `json:"stun_living"`           // 是否启动全局 UDP:STUN 服务
 	STUNClient     bool   `json:"stun_client"`           // 是否需要NAT层级&生存期探测
-}
-
-// Base 获取基础配置。
-// 用户的配置文件为 ~/.findings/config.json
-func Base() (*Config, error) {
-	// 默认配置值
-	config := Config{
-		UserID:         UserID,
-		ServerPort:     ServerPort,
-		RemotePort:     RemotePort,
-		UDPListen:      UDPListen,
-		UDPLiving:      UDPLiving,
-		LogDir:         LogsDirname,
-		Findings:       MaxFinders,
-		PeersHelp:      PeersHelp,
-		ConnApps:       MaxApps,
-		Shortlist:      ListFindings,
-		BufferSize:     BufferSize,
-		PeerFindRange:  PeerFindRange,
-		STUNPeerAmount: STUNPeerAmount,
-		STUNLiving:     STUNLiving,
-		STUNClient:     STUNClient,
-	}
-
-	// 获取当前用户的家目录
-	usr, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
-	}
-	configPath := filepath.Join(usr, ".findings", "config.hjson")
-
-	// 读取配置文件
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return nil, err
-	}
-
-	err = hjson.Unmarshal(data, &config)
-	return &config, err
-}
-
-// Peers 获取用户配置的节点IP信息集。
-// 配置文件 ~/.findings/peers.json，内容可能由App发布时配置，或用户自己修改配置。
-// 其中的IP应当至少是曾经有效的，其也可以作为 find.PointIPs 中的起点IP。
-// 返回的集合中排除了重复的IP地址。
-func Peers() (map[netip.Addr]*Peer, error) {
-	var peers []*Peer
-
-	// 获取当前用户的家目录
-	usr, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
-	}
-	configPath := filepath.Join(usr, ".findings", "peers.json")
-
-	// 读取配置文件
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return nil, err
-	}
-	// 解码JSON
-	if err = json.Unmarshal(data, &peers); err != nil {
-		return nil, err
-	}
-	list := make(map[netip.Addr]*Peer)
-
-	// 剔除重复IP
-	for _, peer := range peers {
-		list[peer.IP] = peer
-	}
-	return list, err
-}
-
-// Bans 获取用户配置的禁闭节点集（本网）。
-// 配置文件 bans.json，存在于应用程序的安装目录之下。
-// 注：
-// 地址应当格式正确，无空格。
-func Bans() (map[string]time.Time, error) {
-	var bans []string
-
-	usr, err := appDir()
-	if err != nil {
-		return nil, err
-	}
-	configPath := filepath.Join(usr, ".config", "bans.json")
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(data, &bans)
-	if err != nil {
-		return nil, err
-	}
-	pool := make(map[string]time.Time)
-
-	// 注意地址格式的标准化
-	for _, k := range bans {
-		pool[k] = time.Now()
-	}
-	return pool, err
-}
-
-// Services 读取服务配置集
-// 服务器支持的应用类型名称，以及可受益的账户地址。
-// 对于提供了服务但没有相应区块链收益地址的，账户设置为空串。
-// 配置文件 ~/.findings/services.json
-func Services() (map[string]string, error) {
-	var stakes map[string]string
-
-	// 获取当前用户的家目录
-	usr, err := os.UserHomeDir()
-	if err != nil {
-		return stakes, err
-	}
-	configPath := filepath.Join(usr, ".findings", "services.hjson")
-
-	// 读取配置文件
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return stakes, err
-	}
-
-	err = hjson.Unmarshal(data, &stakes)
-	return stakes, err
-}
-
-//
-// 私有辅助
-//////////////////////////////////////////////////////////////////////////////
-
-// 获取应用程序当前目录。
-func appDir() (string, error) {
-	// 当前执行文件的路径
-	exePath, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Dir(exePath), nil
 }

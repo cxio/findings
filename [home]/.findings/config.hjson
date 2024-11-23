@@ -4,7 +4,6 @@
     remote_port: 7788,      // 远端端口，通常为标准端口7788或443混入。用于服务器探测
     udp_listen: 7080,       // 本地 NAT 类型探测监听端口
     udp_living: 7181,       // 本地 NAT 生命期探测监听端口
-    log_dir: "logs",        // 应用程序日志存放根目录
     findings: 10,           // 同时连接的本类节点数
     peers_help: 8,          // 上线协助发送条目数。局域Findings可能设置较大的值
     applications: 500,      // 每种应用可同时连接的节点数量上限
@@ -15,4 +14,5 @@
     stun_living: true,      // 是否启动 STUN:Live 服务（NAT生命期探测）
     stun_client: true,      // 是否需要作为客户端的NAT层级&生存期探测
     user_id: "thanks"       // 本节点的身份ID（非群组成员可任意）
+    log_dir: "",            // 日志存放目录（全路径），默认应用程序缓存目录。可选
 }
