@@ -42,7 +42,8 @@ func Base() (*Config, error) {
 	data, err := os.ReadFile(configPath)
 	// 容错文件不存在
 	if err != nil {
-		return config, err
+		log.Println("[Error]", err)
+		return config, nil
 	}
 	err = hjson.Unmarshal(data, config)
 
@@ -67,7 +68,8 @@ func Peers() (map[netip.Addr]*Peer, error) {
 	data, err := os.ReadFile(configPath)
 	// 容错文件不存在
 	if err != nil {
-		return list, err
+		log.Println("[Error]", err)
+		return list, nil
 	}
 	// 解码JSON
 	if err = json.Unmarshal(data, &peers); err != nil {
@@ -97,7 +99,8 @@ func Bans() (map[string]time.Time, error) {
 	data, err := os.ReadFile(configPath)
 	// 容错文件不存在
 	if err != nil {
-		return pool, err
+		log.Println("[Error]", err)
+		return pool, nil
 	}
 	// 存在即需格式正确
 	if err = json.Unmarshal(data, &bans); err != nil {
@@ -125,7 +128,8 @@ func Stakes() (map[string]string, error) {
 	data, err := os.ReadFile(configPath)
 	// 容错文件不存在
 	if err != nil {
-		return stakes, err
+		log.Println("[Error]", err)
+		return stakes, nil
 	}
 	err = hjson.Unmarshal(data, &stakes)
 
