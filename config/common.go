@@ -146,7 +146,7 @@ func Stakes() (map[string]string, error) {
 func CreateLoger(path, filename, prefix string) (*log.Logger, *os.File, error) {
 	var err error
 	if path == "" {
-		path, err = appCacheDir("logs")
+		path, err = appCacheDir(LogDir)
 		if err != nil {
 			return nil, nil, err
 		}

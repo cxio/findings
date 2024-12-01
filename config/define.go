@@ -44,13 +44,13 @@ const (
 )
 
 // 开发配置常量
-// 部分值关系到安全性，不提供外部可配置。
+// 部分值关系到安全，不提供外部可配置。
 const (
 	SomeFindings    = 10                // 本类端组网发送条目数
 	AppServerTCP    = 6                 // 应用端请求TCP服务器节点数量
 	STUNTryMax      = 4                 // 打洞协助单次失败再尝试最大次数
 	FinderPatrol    = time.Minute * 10  // 本类节点连接切换巡查间隔
-	ShortlistPatrol = time.Minute * 6   // 后续池节点在线巡查间隔
+	ShortlistPatrol = time.Minute * 6   // 候选池节点在线巡查间隔
 	BanExpired      = time.Hour * 4     // 恶意节点禁闭期限
 	ApplierPatrol   = time.Minute * 12  // 应用连接池巡查间隔
 	ApplierExpired  = time.Minute * 150 // 应用端在线最长时间（2.5h）
@@ -76,6 +76,7 @@ const (
 
 // 日志文件名
 const (
+	LogDir       = "logs"         // 日志根目录（系统缓存根下）
 	LogFile      = "findings.log" // 主程序日志
 	LogPeerFile  = "peers.log"    // 有效连接节点历史
 	LogDebugFile = "debug.log"    // 调试日志
@@ -99,23 +100,22 @@ func (p *Peer) String() string {
 // Config 基础配置。
 // 通常来说，直接在公网上的节点应当配置 ServerPort 为标准端口7788或443，
 // 这样方便新上线的节点寻找。
-// 对于处于NAT之后的内网节点，端口是任意的，它们通常作为在候选名单或当前连接的已知节点存在。
 // RemotePort 用于新节点初始上线时的暴力发现，
 // 仅在App内置节点已不可用，且也没有其它可连接的节点配置时才需要。
 type Config struct {
-	UserID         string `json:"user_id"`               // 本节点的身份ID（群组时用）
-	ServerPort     int    `json:"server_port"`           // 本地服务端口
-	RemotePort     int    `json:"remote_port,omitempty"` // 远端节点服务端口（7788|443|0|...）
-	UDPListen      int    `json:"udp_listen"`            // 本地 NAT 类型探测监听端口
-	UDPLiving      int    `json:"udp_living"`            // 本地 NAT 生命期探测监听端口
-	LogDir         string `json:"log_dir"`               // 日志根目录
-	Findings       int    `json:"findings"`              // 同时连接的本类节点数
-	PeersHelp      int    `json:"peers_help"`            // 上线帮助发送条目数
-	ConnApps       int    `json:"applications"`          // 可同时连接的应用端数量上限
-	Shortlist      int    `json:"shortlist"`             // 本类节点候选名单长度
-	BufferSize     int    `json:"buffer_size,omitempty"` // 连接读写缓冲区大小
-	PeerFindRange  int    `json:"peers_range"`           // 基于起点，节点寻找的范围
-	STUNPeerAmount int    `json:"stun_peer_amount"`      // 打洞协助连接节点数
-	STUNLiving     bool   `json:"stun_living"`           // 是否启动全局 UDP:STUN 服务
-	STUNClient     bool   `json:"stun_client"`           // 是否需要NAT层级&生存期探测
+	UserID         string `json:"user_id,omitempty"`          // 本节点的身份ID（群组时用）
+	ServerPort     int    `json:"server_port,omitempty"`      // 本地服务端口
+	RemotePort     int    `json:"remote_port,omitempty"`      // 远端节点服务端口（7788|443|0|...）
+	UDPListen      int    `json:"udp_listen,omitempty"`       // 本地 NAT 类型探测监听端口
+	UDPLiving      int    `json:"udp_living,omitempty"`       // 本地 NAT 生命期探测监听端口
+	LogDir         string `json:"log_dir,omitempty"`          // 日志根目录
+	Findings       int    `json:"findings,omitempty"`         // 同时连接的本类节点数
+	PeersHelp      int    `json:"peers_help,omitempty"`       // 上线帮助发送条目数
+	ConnApps       int    `json:"applications,omitempty"`     // 可同时连接的应用端数量上限
+	Shortlist      int    `json:"shortlist,omitempty"`        // 本类节点候选名单长度
+	BufferSize     int    `json:"buffer_size,omitempty"`      // 连接读写缓冲区大小
+	PeerFindRange  int    `json:"peers_range,omitempty"`      // 基于起点，节点寻找的范围
+	STUNPeerAmount int    `json:"stun_peer_amount,omitempty"` // 打洞协助连接节点数
+	STUNLiving     bool   `json:"stun_living,omitempty"`      // 是否启动全局 UDP:STUN 服务
+	STUNClient     bool   `json:"stun_client,omitempty"`      // 是否需要NAT层级&生存期探测
 }
