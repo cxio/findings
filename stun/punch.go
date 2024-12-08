@@ -154,6 +154,7 @@ func EncodePunchOne(app *Peer, to *UDPInfo, expire int) ([]byte, error) {
 // 索引键中的IP会保证IPv6中嵌入的IPv4脱离出来。
 // @return1 目标节点索引，空串表示登记
 // @return2 节点自身UDP关联信息
+// @return3 登记有效期时长
 func DecodePunchOne(data []byte) (string, *Peer, time.Duration, error) {
 	buf := &PunchOne{}
 
@@ -171,7 +172,7 @@ func DecodePunchOne(data []byte) (string, *Peer, time.Duration, error) {
 		NatLevel(buf.Client.Level),
 		buf.Client.Token,
 	)
-	// 登记场景
+	// 仅登记时
 	if buf.Target == nil {
 		return "", peer, time.Duration(buf.Expire) * time.Second, nil
 	}

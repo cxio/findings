@@ -243,7 +243,7 @@ func (f *Finder) process(data []byte, conn *websocket.Conn, notice chan<- *stun.
 		f.udper.Tester <- natx.STUN_LIVE
 
 	// 取得自己的UDP地址
-	case base.COMMAND_STUN_PEER:
+	case base.COMMAND_PEERUDP:
 		addr, err := stun.DecodeUDPInfo(data)
 		if err != nil {
 			return err

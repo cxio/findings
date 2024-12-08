@@ -158,7 +158,9 @@ func (a *Applier) process(data []byte) error {
 			return err
 		}
 
-	// 执行UDP打洞协助
+	// UDP打洞协助
+	// 动作：协助+登记
+	// 常用于普通的同类互助连接。
 	case base.COMMAND_PUNCH:
 		if !applPools.Supported(a.Kind) {
 			return ErrAppKind
@@ -170,10 +172,10 @@ func (a *Applier) process(data []byte) error {
 		}
 		appl4 := applPools.Appliers4(a.Kind)
 
+		// 先协助（之后入库）
 		if err = servicePunching(a.Conn, punch, appl4, cfgUser.STUNPeerAmount); err != nil {
 			return err
 		}
-		// 先设置再入库，避免并发无值问题
 		a.SetLinkPeer(punch)
 
 		// 互助节点入库
@@ -182,7 +184,45 @@ func (a *Applier) process(data []byte) error {
 			loger.Println("[Waring]", err)
 		}
 
-	// 执行UDP定向打洞协助
+	// UDP打洞协助
+	// 动作：仅登记
+	// 常用于异类协助（等待异类主动连系）
+	case base.COMMAND_PUNCH_ON:
+		// Kind 为自己的类别
+		if !applPools.Supported(a.Kind) {
+			return ErrAppKind
+		}
+		_, punch, err := stun.DecodePunch(data)
+		if err != nil {
+			return err
+		}
+		a.SetLinkPeer(punch)
+		appl4 := applPools.Appliers4(a.Kind)
+
+		if err = appl4[punch.Level].Add(a); err != nil {
+			// 仅记录
+			loger.Println("[Waring]", err)
+		}
+
+	// UDP打洞协助
+	// 动作：仅协助
+	// 常用于异类寻找（如组队交易中守卫者连系校验员）。
+	case base.COMMAND_PUNCH_GET:
+		// Kind 为对方的类别
+		if !applPools.Supported(a.Kind) {
+			return ErrAppKind
+		}
+		_, punch, err := stun.DecodePunch(data)
+		if err != nil {
+			return err
+		}
+		appl4 := applPools.Appliers4(a.Kind)
+
+		if err = servicePunching(a.Conn, punch, appl4, cfgUser.STUNPeerAmount); err != nil {
+			return err
+		}
+
+	// UDP定向打洞协助
 	// - 无目标：登记入库，等待被检索。
 	// - 有目标：检索并执行打洞协助。
 	// 注意：
@@ -320,7 +360,7 @@ func (a *Applier) SendPeerUDP(addr *net.UDPAddr) error {
 	if err != nil {
 		return err
 	}
-	data, err = base.EncodeProto(base.COMMAND_STUN_PEER, data)
+	data, err = base.EncodeProto(base.COMMAND_PEERUDP, data)
 	if err != nil {
 		return err
 	}

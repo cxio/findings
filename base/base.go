@@ -30,11 +30,13 @@
 // COMMAND_APPKIND:		<=| Kind{ Base, Name }
 // COMMAND_PEERSTCP:		|=> []node.Peer { Ip, Port }
 // COMMAND_PUNCH:		<=| stun.Punchx{ "", IP, Port...}
-// COMMAND_PUNCH2:		<=| stun.PunchOne{ "", IP, Port...}
+// COMMAND_PUNCH_ON		<=| stun.Punchx{ "", IP, Port...}
+// COMMAND_PUNCH_GET		<=| stun.Punchx{ "", IP, Port...}
+// COMMAND_PUNCH2:		<=| stun.PunchOne{ "", IP, Port, Target}
 // COMMAND_PUNCHX:		|=> stun.Punchx{ Dir, Ip, Port... } ...
+// COMMAND_PEERUDP:		|=> stun.UDPInfo{ Ip, Port }
 // COMMAND_STUN_CONE:		|=> stun.ServInfo{ Port, Sn32, Skey, Token }
 // COMMAND_STUN_SYM:		|=> stun.ServInfo{ ... }
-// COMMAND_STUN_PEER:		|=> stun.UDPInfo{ Ip, Port }
 // COMMAND_STUN_LIVE:		|=> stun.ServInfo{ ... }
 // COMMAND_STUN_HOST:		<=| stun.Hosto { Ip, Port, Sn32 }
 //
@@ -78,12 +80,14 @@ const (
 	COMMAND_KINDLIST                 // 应用：服务器返回自己支持的应用类型（data: list）
 	COMMAND_APPKIND                  // 应用：应用端向服务器查询是否支持目标应用类型
 	COMMAND_PEERSTCP                 // 应用：服务器返回支持 TCP 直连的节点清单（data: list）
-	COMMAND_PUNCH                    // 应用：应用端请求打洞协助（data: udp-peer）
+	COMMAND_PUNCH                    // 应用：应用端请求打洞协助并登记（data: udp-peer）
+	COMMAND_PUNCH_ON                 // 应用：应用端请求打洞协助仅登记（data: udp-peer）
+	COMMAND_PUNCH_GET                // 应用：应用端请求打洞协助无登记（data: udp-peer）
 	COMMAND_PUNCH2                   // 应用：应用端登记或请求定向打洞协助（data: udp-peer, [target]）
 	COMMAND_PUNCHX                   // 应用：服务器提供打洞信令协助（data: udp-peer）
+	COMMAND_PEERUDP                  // 应用：服务器回应对端UDP节点信息
 	COMMAND_STUN_CONE                // STUN：服务器回应NAT类型侦测主服务
 	COMMAND_STUN_SYM                 // STUN：服务器回应NAT类型侦测副服务
-	COMMAND_STUN_PEER                // STUN：服务器回应对端UDP节点信息
 	COMMAND_STUN_LIVE                // STUN：服务器回应NAT存活期侦测服务
 	COMMAND_STUN_HOST                // STUN：请求对端NewHost协助，向其提供UDP地址
 )
