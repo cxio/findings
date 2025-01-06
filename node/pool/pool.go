@@ -1,4 +1,4 @@
-// Copyright (c) 2024 @cxio/blockchain
+// Copyright (c) 2024 @cxio/findings
 // Released under the MIT license
 //////////////////////////////////////////////////////////////////////////////
 // 实现一个通用的泛型缓存池。

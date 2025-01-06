@@ -23,7 +23,7 @@ message Kind {
 }
 
 // 服务类型名集
-// 服务器返回给应用端的信息。
+// 服务器返回给应用端的信息（此时seek无效）。
 message ServKinds {
     repeated Kind names = 1;
 }

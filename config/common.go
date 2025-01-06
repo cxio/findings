@@ -12,7 +12,7 @@ import (
 )
 
 // Base 获取基础配置。
-// 用户的配置文件为 ~/.findings/config.json
+// 用户的配置文件为 ~/.findings/config.hjson
 func Base() (*Config, error) {
 	// 默认配置值
 	config := &Config{
@@ -21,7 +21,6 @@ func Base() (*Config, error) {
 		RemotePort:     RemotePort,
 		UDPListen:      UDPListen,
 		UDPLiving:      UDPLiving,
-		LogDir:         "",
 		Findings:       MaxFinders,
 		PeersHelp:      PeersHelp,
 		ConnApps:       MaxApps,
@@ -31,6 +30,7 @@ func Base() (*Config, error) {
 		STUNPeerAmount: STUNPeerAmount,
 		STUNLiving:     STUNLiving,
 		STUNClient:     STUNClient,
+		LogDir:         "", // 空值表示使用系统缓存目录
 	}
 	// 当前用户主目录
 	usr, err := os.UserHomeDir()
@@ -115,7 +115,7 @@ func Bans() (map[string]time.Time, error) {
 // Stakes 读取权益配置集
 // 服务器支持的应用类型名称，以及可受益的账户地址。
 // 对于提供了服务但没有相应区块链收益地址的，账户设置为空串。
-// 配置文件 ~/.findings/services.json
+// 配置文件 ~/.findings/stakes.hjson
 func Stakes() (map[string]string, error) {
 	// 用户主目录
 	usr, err := os.UserHomeDir()

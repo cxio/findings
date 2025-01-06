@@ -150,7 +150,7 @@ func (x *Kind) GetSeek() string {
 }
 
 // 服务类型名集
-// 服务器返回给应用端的信息。
+// 服务器返回给应用端的信息（此时seek无效）。
 type ServKinds struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache

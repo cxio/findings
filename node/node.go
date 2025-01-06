@@ -1,4 +1,4 @@
-// 节点模块
+// Package node 节点模块
 // 包含Findings候选池、连接池以及应用节点池的支持。
 package node
 
