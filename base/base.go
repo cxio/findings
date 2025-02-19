@@ -30,7 +30,7 @@
 // COMMAND_APPKIND:		<=| Kind{ Base, Name }
 // COMMAND_PEERSTCP:		|=> []node.Peer { Ip, Port }
 // COMMAND_PUNCH:		<=| stun.Punchx{ "", IP, Port...}
-// COMMAND_PUNCH_ON		<=| stun.Punchx{ "", IP, Port...}
+// COMMAND_PUNCH_REG		<=| stun.Punchx{ "", IP, Port...}
 // COMMAND_PUNCH_GET		<=| stun.Punchx{ "", IP, Port...}
 // COMMAND_PUNCH2:		<=| stun.PunchOne{ "", IP, Port, Target}
 // COMMAND_PUNCHX:		|=> stun.Punchx{ Dir, Ip, Port... } ...
@@ -81,8 +81,8 @@ const (
 	COMMAND_APPKIND                  // 应用：应用端向服务器查询是否支持目标应用类型
 	COMMAND_PEERSTCP                 // 应用：服务器返回支持 TCP 直连的节点清单（data: list）
 	COMMAND_PUNCH                    // 应用：应用端请求打洞协助并登记（data: udp-peer）
-	COMMAND_PUNCH_ON                 // 应用：应用端请求打洞协助仅登记（data: udp-peer）
-	COMMAND_PUNCH_GET                // 应用：应用端请求打洞协助无登记（data: udp-peer）
+	COMMAND_PUNCH_REG                // 应用：应用端请求打洞协助仅登记（data: udp-peer）
+	COMMAND_PUNCH_GET                // 应用：应用端请求打洞协助仅请求（data: udp-peer）
 	COMMAND_PUNCH2                   // 应用：应用端登记或请求定向打洞协助（data: udp-peer, [target]）
 	COMMAND_PUNCHX                   // 应用：服务器提供打洞信令协助（data: udp-peer）
 	COMMAND_PEERUDP                  // 应用：服务器回应对端UDP节点信息

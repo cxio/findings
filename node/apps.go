@@ -1,3 +1,5 @@
+// 定向打洞服务部分。
+
 package node
 
 import (

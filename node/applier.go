@@ -186,8 +186,9 @@ func (a *Applier) process(data []byte) error {
 
 	// UDP打洞协助
 	// 动作：仅登记
-	// 常用于异类协助（等待异类主动连系）
-	case base.COMMAND_PUNCH_ON:
+	// 常用于异类协助，等待异类主动连系（有协作关系，但不能登记为同类）。
+	// 如组队校验中守卫者和校验员之间。
+	case base.COMMAND_PUNCH_REG:
 		// Kind 为自己的类别
 		if !applPools.Supported(a.Kind) {
 			return ErrAppKind
@@ -205,7 +206,7 @@ func (a *Applier) process(data []byte) error {
 		}
 
 	// UDP打洞协助
-	// 动作：仅协助
+	// 动作：仅协助（不登记）
 	// 常用于异类寻找（如组队交易中守卫者连系校验员）。
 	case base.COMMAND_PUNCH_GET:
 		// Kind 为对方的类别
