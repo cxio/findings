@@ -152,7 +152,7 @@ func EncodePunchOne(app *Peer, to *UDPInfo, expire int) ([]byte, error) {
 // 如果为登记场景，则该string为空串，无错。
 // 注：
 // 索引键中的IP会保证IPv6中嵌入的IPv4脱离出来。
-// @return1 目标节点索引，空串表示登记
+// @return1 目标节点索引
 // @return2 节点自身UDP关联信息
 // @return3 登记有效期时长
 func DecodePunchOne(data []byte) (string, *Peer, time.Duration, error) {
@@ -184,5 +184,6 @@ func DecodePunchOne(data []byte) (string, *Peer, time.Duration, error) {
 	// 嵌入IPv6的IPv4会剥离。
 	key := netip.AddrPortFrom(ip.Unmap(), uint16(buf.Target.Port))
 
+	// 采用目标节点的IP地址作为索引
 	return key.String(), peer, 0, nil
 }
