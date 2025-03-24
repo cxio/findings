@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/cxio/findings/base"
-	"github.com/cxio/findings/config"
+	"github.com/cxio/findings/cfg"
 	"github.com/cxio/findings/node/pool"
 	"github.com/cxio/findings/stun"
 	"github.com/cxio/findings/stun/natx"
@@ -46,7 +46,7 @@ var logpeer = base.LogPeer
 // 私有全局变量
 var (
 	// 用户配置
-	cfgUser *config.Config
+	cfgUser *cfg.Config
 
 	// 候选池
 	shortList *Shortlist
@@ -87,29 +87,29 @@ var (
 // Init 模块初始化。
 // 根据传入的配置，初始化一些全局变量，启动部分内置全局服务。
 // @ctx 全局上下文
-// @cfg 用户配置集
+// @conf 用户配置集
 // @stakes 支持的“服务:权益地址”集
 // @chpeer 广域搜索节点递送通道
 // @done 广域搜索终止通知
-func Init(ctx context.Context, cfg *config.Config, stakes map[string]string, chpeer <-chan *config.Peer, done chan<- struct{}) {
-	cfgUser = cfg
-	findings = NewFinders(cfg.Findings)
-	shortList = NewShortlist(cfg.Shortlist)
+func Init(ctx context.Context, conf *cfg.Config, stakes map[string]string, chpeer <-chan *cfg.Peer, done chan<- struct{}) {
+	cfgUser = conf
+	findings = NewFinders(conf.Findings)
+	shortList = NewShortlist(conf.Shortlist)
 	tcpStores = NewTCPStorePool()
 
 	// STUN:Live 服务
 	// 如果节点在NAT内部，通常无需启动该服务。
-	if cfg.STUNLiving {
-		go stun.LiveListen(ctx, cfg.UDPLiving, base.GlobalSeed)
+	if conf.STUNLiving {
+		go stun.LiveListen(ctx, conf.UDPLiving, base.GlobalSeed)
 	}
 	// STUN:NAT 探测服务
 	// 普通非公网Findings节点也可配合执行NewHost发送。
-	stunClient = stun.ListenUDP(ctx, cfg.UDPListen, base.GlobalSeed, stunNotice)
+	stunClient = stun.ListenUDP(ctx, conf.UDPListen, base.GlobalSeed, stunNotice)
 
 	// 作为NAT受限客户端
 	// - 需要探测自身NAT层级以及NAT生存期。
 	// - 需要UDP打洞连接其它Finder节点增强交互。
-	if cfg.STUNClient {
+	if conf.STUNClient {
 		client, err := natx.ListenUDP(ctx)
 		if err != nil {
 			loger.Fatalln("[Fatal] create Client:UDP failed:", err)
@@ -126,28 +126,28 @@ func Init(ctx context.Context, cfg *config.Config, stakes map[string]string, chp
 	names := serviceNames(serviceKinds)
 
 	for _, kn := range names {
-		applPools.Init(kn, cfg.ConnApps)
-		tcpStores.Init(kn, cfg.ConnApps, cleanSize)
+		applPools.Init(kn, conf.ConnApps)
+		tcpStores.Init(kn, conf.ConnApps, cleanSize)
 	}
 	// 应用池清理巡查
 	if applPools.Size() > 0 {
-		go serverPatrol(ctx, applPools, config.ApplierPatrol, names)
+		go serverPatrol(ctx, applPools, cfg.ApplierPatrol, names)
 	}
 
 	// 定向打洞：连接映射集
 	appMaps = NewAppPool(names)
 	if len(names) > 0 {
-		go serverPunch2(ctx, appMaps, config.Punch2Clean, names)
+		go serverPunch2(ctx, appMaps, cfg.Punch2Clean, names)
 	}
 
 	// 接收广域 Finder
 	go serverPeers(ctx, chpeer, done, findings, shortList)
 
 	// 候选池在线巡查
-	go serverShortlist(ctx, shortList, config.ShortlistPatrol)
+	go serverShortlist(ctx, shortList, cfg.ShortlistPatrol)
 
 	// Finder组网巡查
-	go serverFinders(ctx, findings, shortList, config.FinderPatrol)
+	go serverFinders(ctx, findings, shortList, cfg.FinderPatrol)
 }
 
 // ProcessOnKind 相应类型处理器。
@@ -597,7 +597,7 @@ func (tp TCPStorePool) Supported(kind string) bool {
 // @done 搜寻结束通知
 // @pool 组网池
 // @list 候选池
-func serverPeers(ctx context.Context, chin <-chan *config.Peer, done chan<- struct{}, pool *Finders, list *Shortlist) {
+func serverPeers(ctx context.Context, chin <-chan *cfg.Peer, done chan<- struct{}, pool *Finders, list *Shortlist) {
 	loger.Println("First peers help server start.")
 	defer close(done)
 loop:
@@ -704,7 +704,7 @@ loop:
 			break loop
 
 		case <-time.After(dur):
-			pools.Clean(ctx, kinds, config.ApplierExpired)
+			pools.Clean(ctx, kinds, cfg.ApplierExpired)
 		}
 	}
 	loger.Println("Applier pools patrol server exit.")
@@ -771,7 +771,7 @@ func findingsKinds(conn *websocket.Conn, list []*base.Kind, cmd base.Command) er
 // @long 拨号等待超时设置
 // @pool 汇入的节点池（候选池）
 // @aban 添加禁闭地址的通道
-func findingsHelp(peer *config.Peer, long time.Duration, pool *Shortlist, aban chan<- string) error {
+func findingsHelp(peer *cfg.Peer, long time.Duration, pool *Shortlist, aban chan<- string) error {
 	if pool.IsFulled() {
 		return nil
 	}
@@ -780,7 +780,7 @@ func findingsHelp(peer *config.Peer, long time.Duration, pool *Shortlist, aban c
 		return err
 	}
 	// 请求协助编码
-	data, err := base.EncodeKind(config.Kind, config.AppName, base.SEEK_ASSISTX)
+	data, err := base.EncodeKind(cfg.Kind, cfg.AppName, base.SEEK_ASSISTX)
 	if err != nil {
 		return err
 	}

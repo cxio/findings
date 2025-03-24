@@ -1,7 +1,8 @@
-package config
+package cfg
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/netip"
 	"os"
@@ -89,7 +90,7 @@ func Peers() (map[netip.Addr]*Peer, error) {
 func Bans() (map[string]time.Time, error) {
 	var bans []string
 
-	usr, err := appCacheDir("")
+	usr, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
@@ -144,12 +145,8 @@ func Stakes() (map[string]string, error) {
 // @filename 日志文件名
 // @prefix 日志前缀字符串
 func CreateLoger(path, filename, prefix string) (*log.Logger, *os.File, error) {
-	var err error
 	if path == "" {
-		path, err = appCacheDir(LogDir)
-		if err != nil {
-			return nil, nil, err
-		}
+		return nil, nil, fmt.Errorf("logs path is empty")
 	}
 	fpath := filepath.Join(path, filename)
 
@@ -158,29 +155,4 @@ func CreateLoger(path, filename, prefix string) (*log.Logger, *os.File, error) {
 		return nil, nil, err
 	}
 	return log.New(logFile, prefix, log.Ldate|log.Ltime|log.Lshortfile), logFile, nil
-}
-
-//
-// 私有辅助
-//////////////////////////////////////////////////////////////////////////////
-
-// 获取应用程序缓存目录。
-// 如果目录不存在，则自动创建。
-func appCacheDir(sub string) (string, error) {
-	dir, err := os.UserCacheDir()
-	if err != nil {
-		return "", err
-	}
-	path := filepath.Join(dir, Kind+"@"+AppName, sub)
-
-	if !pathExists(path) {
-		err = os.MkdirAll(path, os.ModePerm)
-	}
-	return path, err
-}
-
-// 路径是否已存在。
-func pathExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil || !os.IsNotExist(err)
 }

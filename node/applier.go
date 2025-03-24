@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/cxio/findings/base"
-	"github.com/cxio/findings/config"
+	"github.com/cxio/findings/cfg"
 	"github.com/cxio/findings/node/pool"
 	"github.com/cxio/findings/stun"
 	"github.com/gorilla/websocket"
@@ -242,9 +242,9 @@ func (a *Applier) process(data []byte) error {
 			a.SetLinkPeer(peer)
 			key = peer.Key()
 			if expire < 0 {
-				expire = config.Punch2Expired
+				expire = cfg.Punch2Expired
 			}
-			amap.Add(key, a, min(expire, config.Punch2Expired))
+			amap.Add(key, a, min(expire, cfg.Punch2Expired))
 			break
 		}
 		app := amap.Get(key)
@@ -271,7 +271,7 @@ func (a *Applier) simpleProcess(msg string) error {
 	switch msg {
 	// 请求TCP直连节点
 	case base.CmdAppsTCP:
-		return a.sendPeersTCP(a.Conn, config.AppServerTCP)
+		return a.sendPeersTCP(a.Conn, cfg.AppServerTCP)
 
 	// STUN:Cone 主服务
 	case base.CmdStunCone:

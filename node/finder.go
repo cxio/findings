@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/cxio/findings/base"
-	"github.com/cxio/findings/config"
+	"github.com/cxio/findings/cfg"
 	"github.com/cxio/findings/node/pool"
 	"github.com/cxio/findings/stun"
 	"github.com/cxio/findings/stun/natx"
@@ -188,7 +188,7 @@ func (f *Finder) process(data []byte, conn *websocket.Conn, notice chan<- *stun.
 				loger.Println("[Error] get peers from client:", err)
 			}
 		}()
-		nodes := shortList.List(config.SomeFindings)
+		nodes := shortList.List(cfg.SomeFindings)
 		if nodes == nil {
 			return ErrEmptyPool
 		}
@@ -568,7 +568,7 @@ func finderReplenish(ctx context.Context, pool *Finders, list *Shortlist, aban c
 func finderShare(finder *Finder, list *Shortlist, aban chan<- string) error {
 	var err error
 	// 分享节点信息
-	nodes := list.List(config.SomeFindings)
+	nodes := list.List(cfg.SomeFindings)
 	if nodes == nil {
 		return ErrEmptyPool
 	}

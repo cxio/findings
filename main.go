@@ -47,18 +47,19 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/gorilla/websocket"
+
 	"github.com/cxio/findings/base"
-	"github.com/cxio/findings/config"
+	"github.com/cxio/findings/cfg"
 	"github.com/cxio/findings/crypto/selfsign"
 	"github.com/cxio/findings/ips"
 	"github.com/cxio/findings/node"
-	"github.com/gorilla/websocket"
 )
 
 // websocket 升级器
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  config.BufferSize,
-	WriteBufferSize: config.BufferSize,
+	ReadBufferSize:  cfg.BufferSize,
+	WriteBufferSize: cfg.BufferSize,
 }
 
 // 服务器关闭等待
@@ -74,28 +75,28 @@ var logpeer = base.LogPeer
 
 func main() {
 	// 读取基础配置
-	cfg, err := config.Base()
+	conf, err := cfg.Base()
 	if err != nil {
 		loger.Fatalln("[Fatal] reading base config:", err)
 	}
-	if cfg.BufferSize > 0 {
-		upgrader.ReadBufferSize = cfg.BufferSize
-		upgrader.WriteBufferSize = cfg.BufferSize
+	if conf.BufferSize > 0 {
+		upgrader.ReadBufferSize = conf.BufferSize
+		upgrader.WriteBufferSize = conf.BufferSize
 	}
 
 	// 读取可用节点配置
-	peers, err := config.Peers()
+	peers, err := cfg.Peers()
 	if err != nil {
 		loger.Fatalln("[Fatal] reading peers config:", err)
 	}
 	// 恶意节点清单
-	bans, err := config.Bans()
+	bans, err := cfg.Bans()
 	if err != nil {
 		loger.Fatalln("[Fatal] reading ban list:", err)
 	}
 
 	// 服务器权益账户
-	stakes, err := config.Stakes()
+	stakes, err := cfg.Stakes()
 	if err != nil {
 		loger.Fatalln("[Fatal] reading stakes of server:", err)
 	}
@@ -104,19 +105,19 @@ func main() {
 
 	// 日志初始化：
 	// base.[Log, LogPeer, LogDebug]
-	base.LogsInit(ctx, cfg.LogDir)
+	base.LogsInit(ctx, conf.LogDir)
 
 	// 向外寻找 Finder
-	chpeer, done := ips.Finding(ctx, cfg.RemotePort, peers, cfg.PeerFindRange)
+	chpeer, done := ips.Finding(ctx, conf.RemotePort, peers, conf.PeerFindRange)
 
 	// 节点模块初始化
-	node.Init(ctx, cfg, stakes, chpeer, done)
+	node.Init(ctx, conf, stakes, chpeer, done)
 
 	// 恶意节点监察
 	go serverBans(ctx, bans, node.BanAddto, node.BanQuery)
 
 	// 阻塞：启动服务
-	serviceListen(cfg.ServerPort)
+	serviceListen(conf.ServerPort)
 	cancel()
 
 	log.Println("Waiting a moment for server to exit...")
@@ -208,7 +209,7 @@ loop:
 				break
 			}
 			// 超期移除
-			if time.Now().After(tm.Add(config.BanExpired)) {
+			if time.Now().After(tm.Add(cfg.BanExpired)) {
 				delete(bans, ban.Addr)
 				ban.Close()
 				logpeer.Println("remove a banned peer:", ban.Addr)

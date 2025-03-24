@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/cxio/findings/config"
+	"github.com/cxio/findings/cfg"
 )
 
 // 相应几个日志记录器
@@ -21,7 +21,7 @@ var (
 // @logs 日志存放根目录
 func LogsInit(ctx context.Context, logs string) {
 	// 主记录，含错误和警告
-	log1, f1, err := config.CreateLoger(logs, config.LogFile, "")
+	log1, f1, err := cfg.CreateLoger(logs, cfg.LogFile, "")
 	if err != nil {
 		log.Fatalf("Failed to create log file %v\n", err)
 	}
@@ -30,7 +30,7 @@ func LogsInit(ctx context.Context, logs string) {
 		f1.Close()
 	}()
 	// 节点历史存留
-	log2, f2, err := config.CreateLoger(logs, config.LogPeerFile, "[Peer] ")
+	log2, f2, err := cfg.CreateLoger(logs, cfg.LogPeerFile, "[Peer] ")
 	if err != nil {
 		log.Fatalf("Failed to create log file %v\n", err)
 	}
@@ -39,7 +39,7 @@ func LogsInit(ctx context.Context, logs string) {
 		f2.Close()
 	}()
 	// 调试专用
-	log3, f3, err := config.CreateLoger(logs, config.LogDebugFile, "[Debug] ")
+	log3, f3, err := cfg.CreateLoger(logs, cfg.LogDebugFile, "[Debug] ")
 	if err != nil {
 		log.Fatalf("Failed to create log file %v\n", err)
 	}

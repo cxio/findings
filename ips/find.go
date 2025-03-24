@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/cxio/findings/base"
-	"github.com/cxio/findings/config"
+	"github.com/cxio/findings/cfg"
 	"github.com/cxio/findings/node"
 )
 
@@ -29,11 +29,11 @@ var loger = base.Log
 // @size 基于起点ip的搜寻幅度（范围）
 // @return1 有效节点递送通道
 // @return2 结束搜寻通知机制（通道）
-func Finding(ctx context.Context, port int, peers map[netip.Addr]*config.Peer, size int) (<-chan *config.Peer, chan<- struct{}) {
+func Finding(ctx context.Context, port int, peers map[netip.Addr]*cfg.Peer, size int) (<-chan *cfg.Peer, chan<- struct{}) {
 	loger.Println("Start searching findings peers...")
 
 	// 节点输出
-	out := make(chan *config.Peer, 1)
+	out := make(chan *cfg.Peer, 1)
 	defer close(out)
 
 	// 结束通知（外部）
@@ -102,14 +102,14 @@ func Finding(ctx context.Context, port int, peers map[netip.Addr]*config.Peer, s
 // @long 连接尝试超时时长
 // @chout 合格节点对外递送通道
 // @done 外部结束通知
-func peersTesting(ctx context.Context, peers map[netip.Addr]*config.Peer, long time.Duration, chout chan<- *config.Peer, done <-chan struct{}) {
+func peersTesting(ctx context.Context, peers map[netip.Addr]*cfg.Peer, long time.Duration, chout chan<- *cfg.Peer, done <-chan struct{}) {
 	var wg sync.WaitGroup
 
 loop:
 	for _, peer := range peers {
 		wg.Add(1)
 
-		go func(p *config.Peer) {
+		go func(p *cfg.Peer) {
 			defer wg.Done()
 			nd := node.New(p.IP, int(p.Port))
 
@@ -141,14 +141,14 @@ loop:
 // @port 共同端口
 // @exclude IP例外清单
 // @return 节点集
-func peerList(ips []netip.Addr, port int, exclude map[netip.Addr]bool) map[netip.Addr]*config.Peer {
-	list := make(map[netip.Addr]*config.Peer)
+func peerList(ips []netip.Addr, port int, exclude map[netip.Addr]bool) map[netip.Addr]*cfg.Peer {
+	list := make(map[netip.Addr]*cfg.Peer)
 
 	for _, ip := range ips {
 		if _, ok := exclude[ip]; ok {
 			continue
 		}
-		list[ip] = &config.Peer{IP: ip, Port: uint16(port)}
+		list[ip] = &cfg.Peer{IP: ip, Port: uint16(port)}
 	}
 	return list
 }
@@ -158,7 +158,7 @@ func peerList(ips []netip.Addr, port int, exclude map[netip.Addr]bool) map[netip
 // @dst 清单存储
 // @src 来源清单
 // @return 存储的清单
-func excludeAppend(dst map[netip.Addr]bool, src map[netip.Addr]*config.Peer) map[netip.Addr]bool {
+func excludeAppend(dst map[netip.Addr]bool, src map[netip.Addr]*cfg.Peer) map[netip.Addr]bool {
 	if dst == nil {
 		dst = make(map[netip.Addr]bool)
 	}

@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/cxio/findings/base"
-	"github.com/cxio/findings/config"
+	"github.com/cxio/findings/cfg"
 	"github.com/cxio/findings/stun"
 	"github.com/gorilla/websocket"
 	"golang.org/x/exp/rand"
@@ -118,7 +118,7 @@ func servicePunching(conn *websocket.Conn, punch *LinkPeer, pools []*Appliers, a
 	pass := make(map[*websocket.Conn]bool)
 
 	for n := 0; n < amount; n++ {
-		client, dir, err := punchingPeer(punch, pools, config.STUNTryMax)
+		client, dir, err := punchingPeer(punch, pools, cfg.STUNTryMax)
 
 		// 条件不具备，无需再尝试
 		if err != nil {
