@@ -96,7 +96,7 @@
 
 #### 流程图示
 
-<img src="./STUN-Cone.png" width="1280" alt="STUN:Cone探测流程" />
+<img src="images/STUN-Cone.png" width="1280" alt="STUN:Cone探测流程" />
 
 
 #### 安全性
@@ -130,7 +130,7 @@
 
 #### 流程图示
 
-<img src="./STUN-Sym.png" width="1280" alt="STUN:Sym探测流程" />
+<img src="images/STUN-Sym.png" width="1280" alt="STUN:Sym探测流程" />
 
 
 ### NAT类型发现流程参考（RFC3489）
@@ -249,7 +249,7 @@ RFC3489 中支持客户端指定响应地址（RESPONSE-ADDRESS, See Section 9.3
 
 ### 流程图示
 
-<img src="./STUN-Live.png" width="1280" alt="STUN:Live探测流程" />
+<img src="images/STUN-Live.png" width="1280" alt="STUN:Live探测流程" />
 
 
 
