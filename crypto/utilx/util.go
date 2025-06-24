@@ -23,15 +23,32 @@ func GenerateToken(size int) ([]byte, error) {
 }
 
 // HashMAC 创建融入IP的哈希消息码。
+// @data 目标数据，哈希的内容。
 // @ip 目标IP地址，会剥离IPv4嵌入以容错混用。
-func HashMAC_ip(data []byte, ip netip.Addr) [32]byte {
+func HashMAC_ip(data []byte, ip netip.Addr) [48]byte {
 	if ip.Is4In6() {
 		ip = ip.Unmap()
 	}
 	h := hmac.New(
-		sha512.New512_256,
+		sha512.New384,
 		ip.AsSlice(),
 	)
 	h.Write(data)
-	return [32]byte(h.Sum(nil))
+	return [48]byte(h.Sum(nil))
+}
+
+// Hash384 创建融入IP的SHA-384哈希值。
+// 注意：此函数与HashMAC_ip不同，它不使用HMAC，而是直接串接计算。
+// @data 目标数据，哈希的内容。
+// @ip 目标IP地址，会剥离IPv4嵌入以容错混用。
+// @return 返回48字节的SHA-384哈希值。
+func Hash384(data []byte, ip netip.Addr) [48]byte {
+	if ip.Is4In6() {
+		ip = ip.Unmap()
+	}
+	h := sha512.New384()
+	h.Write(ip.AsSlice())
+	h.Write(data)
+
+	return [48]byte(h.Sum(nil))
 }

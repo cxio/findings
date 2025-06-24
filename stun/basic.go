@@ -11,17 +11,26 @@
 //
 // 密钥的构造：
 //
-//	Hash256(seed:32 + rnd:16) => [32]byte（密钥）
+//	Hash256(seed:32 + rnd:24) => [32]byte（密钥）
 //
 // 其中：
 // - seed:32 为服务器当前运行时环境的随机数种子，32字节长。
-// - rnd:16  为构造序列号时提取的随机序列，它不在最终的序列号中，但与序列号相关联。
+// - rnd:24  密钥因子。构造序列号时提取的随机序列。
 // ---------------------------------------------------------------------------
 //
 // 序列号：
 // ---------------------------------------------------------------------------
 // 由服务器端派发，虽然是一个随机序列，但与客户端IP相关联。
 // 序列号是当次事务的标识。
+//
+// 序列号的构造：
+// 	Hash384( IP + (Seed:32 + Rand:24) ) => hash
+// 	- Rand:24 + hash[24:48] => SN 	// 序列号
+//  	- hash[:24] => rnd:24		// 密钥因子
+// 其中：
+// - IP 为客户端的公网IP地址
+// - Seed:32 为服务器端随机数种子，服务器启动后即固定不变。
+// - Rand:24 为一个随机序列，24字节长。
 //
 // 日志：
 // ---------------------------------------------------------------------------
@@ -71,31 +80,24 @@ const (
 )
 
 // LenSN 序列号长度。
-// 格式：16 + 16 = 32
-const LenSN = 32
+// 格式：24 + 24 = 48
+const LenSN = 48
 
 // ClientSN 客户端序列号类型
-// [:16] 一个随机字节序列，是构造序列号的种子之一。
-// [16:] 两个种子计算的Sum256结果的局部（后段）。
+// [:24] 一个随机字节序列，构造序列号的因子之一。
+// [24:] 两个因子计算的Sum384结果的局部（后段）。
 type ClientSN [LenSN]byte
 
-// Rnd16 16字节随机序列
-type Rnd16 [16]byte
+// Rnd24 24字节随机序列
+type Rnd24 [24]byte
 
 // Notice 协作通知
 // 用于本地TCP链路向UDP服务器发送协作要求。
-//
-// 注记：
-// 取消Reply字段，简化逻辑。
-// 因为本地UDP服务器最多也只是反馈自己是否确实发送了UDP消息，
-// 相比网络延迟/错误处理的复杂性，此字段价值不大。
-//
 // 用户应采用冗余策略，向多个对端请求协作。
 type Notice struct {
 	Op   UDPSendi     // UDP发送指示
 	Addr *net.UDPAddr // 目标客户端地址
 	SN   ClientSN     // 待发送内容
-	// Reply chan bool    // 状态回应通道
 }
 
 // NewNotice 创建一个协作通知。
@@ -131,41 +133,42 @@ const (
 // GenerateClientSN 创建一个IP特定的序列号
 // 包含特定的结构，服务器端可以直接关联对端IP计算验证（VerifySN）。
 // 结构：
-// IP + (seed:32 + rand:16) => data
-// seed 为服务器端固定种子值，每次启动后随机构造。
+// IP + (Seed:32 + Rand:24) => data
+// - Seed 服务器随机数种子，32字节长。每次启动后创建。
+// - Rand 随机序列，24字节长。
 // 生成：
-// - Hash(data) => hash
-// - rand:16 + hash[16:32] => 序列号（sn）
-// - hash[:16] => Rnd16
+// - Hash384(data) => hash
+// - Rand:24 + hash[24:48] => SN（序列号）
+// - hash[:24] => Rnd24
 // 即：
-// - 对外暴露16字节的随机序列，以及哈希结果的后半段。
-// - 隐藏服务器端种子seed，以及哈希结果的前半段（Rnd16 另有用途）。
+// - 序列号对外暴露24字节的随机序列。
+// - 隐藏服务器端种子Seed，以及哈希结果的前半段（Rnd24 另用）。
 // 参数：
 // @seed 随机数种子，服务器启动后自动生成，运行期间固定不变
 // @ip   客户端节点的公网IP
 // @return1 匹配对端的一个随机序列号（锁定对端IP）
-// @return2 哈希结果的前段未用16字节，用于对称密钥构造因子
+// @return2 哈希结果的前段未用24字节，用于对称密钥构造因子
 //
 // 注记：
-//   - return2 可以用来和 seed 组合成密钥（Sum256后），提供给客户端加密UDP数据。
+//   - return2 可以用来和 seed 组合成密钥，提供给客户端加密UDP数据。
 //     这在客户端初次发送UDP信息和 STUN:Live 探测中有用。
 //   - return2 也可以用来作为map的键，引用提出请求的客户端的TCP连接。
 //     这在服务器回报客户端的UDP地址时有用。
-func GenerateClientSN(seed [32]byte, ip netip.Addr) (ClientSN, Rnd16, error) {
+func GenerateClientSN(seed [32]byte, ip netip.Addr) (ClientSN, Rnd24, error) {
 	// 明码：密钥因子
-	sn16, err := utilx.GenerateToken(16)
+	sn24, err := utilx.GenerateToken(24)
 	if err != nil {
-		return ClientSN{}, Rnd16{}, err
+		return ClientSN{}, Rnd24{}, err
 	}
-	buf := make([]byte, 32+16)
+	buf := make([]byte, 32+24)
 
 	// 隐藏因子 + 明码
 	copy(buf[:32], seed[:]) // [0:32] seed:32
-	copy(buf[32:], sn16)    // [32:48] rand:16
+	copy(buf[32:], sn24)    // [32:56] rand:24
 
 	hash := utilx.HashMAC_ip(buf, ip)
-	rest := Rnd16(hash[:16]) // 前段提取
-	copy(hash[:16], sn16)    // 前端覆盖（明码密钥因子）
+	rest := Rnd24(hash[:24]) // 前段提取
+	copy(hash[:24], sn24)    // 前端覆盖（明码密钥因子）
 
 	return ClientSN(hash), rest, nil
 }
@@ -181,34 +184,33 @@ func GenerateClientSN(seed [32]byte, ip netip.Addr) (ClientSN, Rnd16, error) {
 // - sn 对端节点随UDP数据包发送过来的序列号。
 // 验证：
 // 根据上面生成函数的结构说明进行计算：
-// - sn[:16] => rand:16
-// - seed:32 + rand:16 + ip:xxx => data
-// - Sum256(data) => hash
+// - sn[:24] => rand:24
+// - seed:32 + rand:24 + ip:xxx => data
+// - Hash384(data) => hash
 // 结果：
-// @return1: sn[16:] ?= hash[16:]
-// @return2: 提取的哈希结果的前段16字节
-func VerifySN(seed [32]byte, ip netip.Addr, sn ClientSN) (bool, Rnd16) {
-	buf := make([]byte, 32+16)
+// @return1: sn[24:] ?= hash[24:]
+// @return2: 提取的哈希结果的前段24字节
+func VerifySN(seed [32]byte, ip netip.Addr, sn ClientSN) (bool, Rnd24) {
+	buf := make([]byte, 32+24)
 
 	copy(buf[:32], seed[:]) // [0:32] seed:32
-	copy(buf[32:], sn[:16]) // [32:48] rand:16
+	copy(buf[32:], sn[:24]) // [32:56] rand:24
 
 	hash := utilx.HashMAC_ip(buf, ip)
 
-	// 常量比较时间，避免侧信道攻击seed
-	return hmac.Equal(sn[16:], hash[16:]), Rnd16(hash[:16])
+	// 常量比较时间
+	return hmac.Equal(sn[24:], hash[24:]), Rnd24(hash[:24])
 }
 
 // GenerateSnKey 创建序列号关联密钥
-// 该密钥用来加密客户端发送给服务器的自身的另一个UDP地址。
-// 这由服务器调用，结果密钥通过原有TCP链路发送给客户端（和序列号等信息一起）。
+// 该密钥用来加密客户端通过UDP发送给服务器的数据。
 // 注记：
-// 服务器验证客户端的UDP消息时，即时生成密钥即可。
+// 服务器验证客户端的UDP消息时，从消息中提取rest，即时生成密钥。
 // @seed 服务器端随机种子
 // @rest 序列号验证后的第二个返回值
 // @return 地址加密密钥
-func GenerateSnKey(seed [32]byte, rest Rnd16) [32]byte {
-	buf := make([]byte, 32+16)
+func GenerateSnKey(seed [32]byte, rest Rnd24) [32]byte {
+	buf := make([]byte, 32+24)
 
 	copy(buf, seed[:])
 	copy(buf[32:], rest[:])
@@ -247,7 +249,7 @@ func ListenUDP(ctx context.Context, port int, seed [32]byte, nch <-chan *Notice)
 		defer conn.Close()
 
 		// 仅加密了序列号
-		// 16 + (32 + 28) = 76
+		// 24 + (32 + 28) = 84
 		buf := make([]byte, 100)
 
 		for {
@@ -279,8 +281,8 @@ func ListenUDP(ctx context.Context, port int, seed [32]byte, nch <-chan *Notice)
 					log.Println("[Error] reading from UDP:", err)
 					continue
 				}
-				// buf[:16] 为服务器TCP给客户端的半个种子
-				key := GenerateSnKey(seed, Rnd16(buf[:16]))
+				// buf[:24] 为服务器TCP传给客户端的密钥因子
+				key := GenerateSnKey(seed, Rnd24(buf[:24]))
 
 				// buf[16:] 为序列号的密文
 				sn, err := DecryptSN(buf[16:n], &key)
@@ -322,7 +324,7 @@ func ListenUDP(ctx context.Context, port int, seed [32]byte, nch <-chan *Notice)
 // @rnd 半个密钥因子
 // @key 对称加密/解密密钥
 // @return 一个通道，告知实际发送的次数
-func ClientDial(done <-chan struct{}, conn *net.UDPConn, serv *net.UDPAddr, sn ClientSN, rnd Rnd16, key *[32]byte) <-chan int {
+func ClientDial(done <-chan struct{}, conn *net.UDPConn, serv *net.UDPAddr, sn ClientSN, rnd Rnd24, key *[32]byte) <-chan int {
 	var cnt int
 	ch := make(chan int)
 	waitting := time.Millisecond * 100
@@ -540,13 +542,13 @@ func Resolve2(paddr1, paddr2 *net.UDPAddr) NatLevel {
 // @raddr 服务器UDP监听地址，拨号目标
 // @msg   发送的消息（已加密）
 // @return 是否维持（未改变）
-func LivingTest(ctx context.Context, conn, conn2 *net.UDPConn, raddr *net.UDPAddr, rnd Rnd16, cnt byte, sn ClientSN, port int, key *[32]byte) (bool, error) {
+func LivingTest(ctx context.Context, conn, conn2 *net.UDPConn, raddr *net.UDPAddr, rnd Rnd24, cnt byte, sn ClientSN, port int, key *[32]byte) (bool, error) {
 	// 探测消息
 	msg, err := EncryptLive(cnt, sn, port, key)
 	if err != nil {
 		return false, err
 	}
-	// 前置半个密钥因子明码
+	// 前置密钥因子明码
 	data := append(rnd[:], msg...)
 
 	// 冗余发送 2 次
@@ -622,7 +624,7 @@ func LivingTest(ctx context.Context, conn, conn2 *net.UDPConn, raddr *net.UDPAdd
 // @sn 序列号，从服务器端获得，原样发送和接收（服务端原样返回）
 // @port 本地UDP目标端口（服务器发送的目标）
 // @return 一个通道，告知结果（零值无意义）
-func LivingTime(ctx context.Context, conn, conn2 *net.UDPConn, raddr *net.UDPAddr, rnd Rnd16, sn ClientSN, port int, key *[32]byte) <-chan time.Duration {
+func LivingTime(ctx context.Context, conn, conn2 *net.UDPConn, raddr *net.UDPAddr, rnd Rnd24, sn ClientSN, port int, key *[32]byte) <-chan time.Duration {
 	ch := make(chan time.Duration)
 	done := make(chan struct{})
 	incrTime := 14 * time.Second      // 每次探测递增间隔时间
@@ -705,7 +707,7 @@ func LiveListen(ctx context.Context, port int, seed [32]byte) {
 	log.Println("NAT lifetime detection service started on", addr.Port)
 
 	// Rnd (批次+序列号+port) + 加密pad
-	// 16 + (1 + 32 + 2) + 28 = 79
+	// 24 + (1 + 32 + 2) + 28 = 87
 	buf := make([]byte, 100)
 
 	for {
@@ -718,10 +720,10 @@ func LiveListen(ctx context.Context, port int, seed [32]byte) {
 				log.Println("[Error] reading from UDP:", err)
 				continue
 			}
-			// 前段16字节为密钥因子。
-			key := GenerateSnKey(seed, Rnd16(buf[:16]))
+			// 前段24字节为密钥因子。
+			key := GenerateSnKey(seed, Rnd24(buf[:24]))
 
-			cnt, sn, port, err := DecryptLive(buf[16:n], &key)
+			cnt, sn, port, err := DecryptLive(buf[24:n], &key)
 			if err != nil {
 				log.Println("Decrypt liveNAT data is failed.")
 				continue
