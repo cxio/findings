@@ -1,4 +1,4 @@
-package node
+package server
 
 import (
 	"context"
@@ -8,14 +8,14 @@ import (
 
 	"github.com/cxio/findings/base"
 	"github.com/cxio/findings/cfg"
-	"github.com/cxio/findings/node/pool"
+	"github.com/cxio/findings/server/pool"
 	"github.com/cxio/findings/stun"
 	"github.com/gorilla/websocket"
 	"golang.org/x/exp/constraints"
 )
 
 // 关联节点引用（UDP打洞）
-type LinkPeer = stun.Peer
+type RelatePeer = stun.Peer
 
 // 并发清理并发量
 const cleanNCount = 10
@@ -30,35 +30,35 @@ var clientsUDP = NewClientApps()
 // Applier 应用端服务员
 // 与 Finder 字段完全相同，但两者所支持的方法集不同。
 type Applier struct {
-	*Node                     // 对端节点
-	*LinkPeer                 // 打洞关联节点
-	Kind      string          // 应用类别名
-	Conn      *websocket.Conn // 当前连接（TCP）
-	done      chan struct{}   // 服务结束通知
+	*Node                       // 对端节点
+	*RelatePeer                 // 打洞关联节点
+	Kind        string          // 应用类别名
+	Conn        *websocket.Conn // 当前连接（TCP）
+	done        chan struct{}   // 服务结束通知
 }
 
 // NewApplier 创建一个应用端服务员
-// 初始构建时不设置打洞关联节点（LinkPeer）。
+// 初始构建时不设置打洞关联节点（RelatePeer）。
 func NewApplier(node *Node, kname string, conn *websocket.Conn) *Applier {
 	return &Applier{
-		Node:     node,
-		LinkPeer: nil,
-		Kind:     kname,
-		Conn:     conn,
-		done:     make(chan struct{}),
+		Node:       node,
+		RelatePeer: nil,
+		Kind:       kname,
+		Conn:       conn,
+		done:       make(chan struct{}),
 	}
 }
 
-// SetLinkPeer 设置关联节点
-func (a *Applier) SetLinkPeer(peer *LinkPeer) {
-	a.LinkPeer = peer
+// SetRelatePeer 设置关联节点
+func (a *Applier) SetRelatePeer(peer *RelatePeer) {
+	a.RelatePeer = peer
 }
 
 // Server 作为服务器启动。
 // 对传入的各种类型应用的打洞请求进行回应。
 // 注记：
 // 应用服务员只有服务进程，无对外连出。
-func (a *Applier) Server(ctx context.Context, notice chan<- *stun.Notice, client <-chan *stun.Client) {
+func (a *Applier) Server(ctx context.Context, notice chan<- *stun.Notice, client <-chan *stun.Node) {
 	loger.Printf("A applier serve start [%s]\n", a.Node)
 	start := time.Now()
 top:
@@ -121,7 +121,7 @@ top:
 		}
 	}
 	// 结束：移出应用池
-	if a.LinkPeer != nil {
+	if a.RelatePeer != nil {
 		pool, err := applPools.Appliers(a.Kind, a.Level)
 		if err != nil {
 			loger.Println("[Error]", err)
@@ -176,7 +176,7 @@ func (a *Applier) process(data []byte) error {
 		if err = servicePunching(a.Conn, punch, appl4, cfgUser.STUNPeerAmount); err != nil {
 			return err
 		}
-		a.SetLinkPeer(punch)
+		a.SetRelatePeer(punch)
 
 		// 互助节点入库
 		if err = appl4[punch.Level].Add(a); err != nil {
@@ -197,7 +197,7 @@ func (a *Applier) process(data []byte) error {
 		if err != nil {
 			return err
 		}
-		a.SetLinkPeer(punch)
+		a.SetRelatePeer(punch)
 		appl4 := applPools.Appliers4(a.Kind)
 
 		if err = appl4[punch.Level].Add(a); err != nil {
@@ -239,7 +239,7 @@ func (a *Applier) process(data []byte) error {
 		}
 		// 仅登记
 		if key == "" {
-			a.SetLinkPeer(peer)
+			a.SetRelatePeer(peer)
 			key = peer.Key()
 			if expire < 0 {
 				expire = cfg.Punch2Expired
@@ -275,15 +275,15 @@ func (a *Applier) simpleProcess(msg string) error {
 
 	// STUN:Cone 主服务
 	case base.CmdStunCone:
-		return a.sendServInfo(a.Conn, cfgUser.UDPListen, base.COMMAND_STUN_CONE, clientsUDP)
+		return a.sendServInfo(a.Conn, cfgUser.UDPListen, base.COMMAND_REP_STUN_CONE, clientsUDP)
 
 	// STUN:Sym 副服务
 	case base.CmdStunSym:
-		return a.sendServInfo(a.Conn, cfgUser.UDPListen, base.COMMAND_STUN_SYM, clientsUDP)
+		return a.sendServInfo(a.Conn, cfgUser.UDPListen, base.COMMAND_REP_STUN_SYM, clientsUDP)
 
 	// STUN:Live NAT存活期探测
 	case base.CmdStunLive:
-		return a.sendServInfo(a.Conn, cfgUser.UDPLiving, base.COMMAND_STUN_LIVE, clientsUDP)
+		return a.sendServInfo(a.Conn, cfgUser.UDPLiving, base.COMMAND_REP_STUN_LIVE, clientsUDP)
 
 	// 连接内对端查询
 	case base.CmdFindPing:
@@ -351,7 +351,7 @@ func (a *Applier) sendPeersTCP(conn *websocket.Conn, count int) error {
 	if list == nil {
 		return ErrEmptyPool
 	}
-	return findingsPush(conn, list, base.COMMAND_PEERSTCP)
+	return findingsPush(conn, list, base.COMMAND_REP_PEERSTCP)
 }
 
 // SendPeerUDP 向客户端发送其节点UDP信息。
@@ -361,7 +361,7 @@ func (a *Applier) SendPeerUDP(addr *net.UDPAddr) error {
 	if err != nil {
 		return err
 	}
-	data, err = base.EncodeProto(base.COMMAND_PEERUDP, data)
+	data, err = base.EncodeProto(base.COMMAND_REP_PEERUDP, data)
 	if err != nil {
 		return err
 	}

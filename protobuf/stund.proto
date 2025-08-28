@@ -22,16 +22,16 @@ message Punchx {
 // UDP:IP地址与TCP链路相同，因此这里只需端口信息。
 message ServInfo {
     int32 port = 1;     // UDP 服务器端口
-    bytes sn32 = 2;     // 随机序列号（32 bytes）
+    bytes sn48 = 2;     // 随机序列号（48 bytes）
     bytes skey = 3;     // 对称加密密钥
-    bytes token = 4;    // 半个密钥种子（需原样回传）
+    bytes token = 4;    // 密钥因子（需原样回传）
 }
 
 // LiveNAT 消息包
 // 包含客户端提供的目标UDP地址和序列号。
 // 序列号之前会前置一个批次字节，以方便客户端辨别发送的时间段。
 message LiveNAT {
-    bytes sn33 = 1;     // 批次+序列号（1+32字节）
+    bytes sn49 = 1;     // 批次+序列号（1+48字节）
     int32 port = 2;     // 公网端口
 }
 
@@ -40,7 +40,7 @@ message LiveNAT {
 message Hosto {
     bytes ip = 1;   // 公网IP
     int32 port = 2; // 端口
-    bytes sn32 = 3; // 序列号（32字节）
+    bytes sn48 = 3; // 序列号（48字节）
 }
 
 // UDPInfo 客户端UDP信息

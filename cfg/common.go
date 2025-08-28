@@ -18,20 +18,19 @@ func Base() (*Config, error) {
 	// 默认配置值
 	config := &Config{
 		UserID:         UserID,
+		LogDir:         "", // 空值表示使用系统缓存目录
 		ServerPort:     ServerPort,
 		RemotePort:     RemotePort,
+		Shortlist:      ListFindings,
+		ConnApps:       MaxApps,
+		PeersHelp:      PeersHelp,
+		STUNPeerAmount: STUNPeerAmount,
+		PeerFindRange:  PeerFindRange,
+		BufferSize:     BufferSize,
+		STUNLiving:     STUNLiving,
 		UDPListen:      UDPListen,
 		UDPLiving:      UDPLiving,
-		Findings:       MaxFinders,
-		PeersHelp:      PeersHelp,
-		ConnApps:       MaxApps,
-		Shortlist:      ListFindings,
-		BufferSize:     BufferSize,
-		PeerFindRange:  PeerFindRange,
-		STUNPeerAmount: STUNPeerAmount,
-		STUNLiving:     STUNLiving,
 		STUNClient:     STUNClient,
-		LogDir:         "", // 空值表示使用系统缓存目录
 	}
 	// 当前用户主目录
 	usr, err := os.UserHomeDir()
@@ -138,8 +137,6 @@ func Stakes() (map[string]string, error) {
 }
 
 // CreateLoger 创建一个日志记录器。
-// 实参path为存储路径，如果用户传递一个空串，
-// 则使用相对于应用程序系统缓存目录内的logs子目录。
 // 返回的 os.File 主要用于外部自行关闭操作。
 // @path 存储路径，可选
 // @filename 日志文件名

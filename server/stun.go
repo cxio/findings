@@ -1,4 +1,4 @@
-package node
+package server
 
 import (
 	"errors"
@@ -28,22 +28,32 @@ var (
 // 局部需用常量引用。
 // 注：主要用于 appliers4 类型取成员值。
 const (
+	NAT_LEVEL_ERROR  = stun.NAT_LEVEL_ERROR
 	NAT_LEVEL_NULL   = stun.NAT_LEVEL_NULL
 	NAT_LEVEL_RC     = stun.NAT_LEVEL_RC
 	NAT_LEVEL_PRC    = stun.NAT_LEVEL_PRC
 	NAT_LEVEL_SYM    = stun.NAT_LEVEL_SYM
 	NAT_LEVEL_PRCSYM = stun.NAT_LEVEL_PRCSYM
-	NAT_LEVEL_ERROR  = stun.NAT_LEVEL_ERROR
 )
 
-// NatNames NAT 类型名集
-var NatNames = []string{
-	NAT_LEVEL_NULL:   "Pub/FullC", // 0: Public | Public@UPnP | Full Cone
-	NAT_LEVEL_RC:     "RC",        // 1: Restricted Cone (RC)
-	NAT_LEVEL_PRC:    "P-RC",      // 2: Port Restricted Cone (P-RC)
-	NAT_LEVEL_SYM:    "Sym",       // 3: Symmetric NAT (Sym) | Sym UDP Firewall
-	NAT_LEVEL_PRCSYM: "P-RC|Sym",  // 4: P-RC | Sym
-	NAT_LEVEL_ERROR:  "Unknown",   // 5: UDP链路不可用，或探测错误默认值
+// natNames NAT 类型名集
+var natNames = []string{
+	NAT_LEVEL_NULL:   "Pub/FullC", // Public | Public@UPnP | Full Cone
+	NAT_LEVEL_RC:     "RC",        // Restricted Cone (RC)
+	NAT_LEVEL_PRC:    "P-RC",      // Port Restricted Cone (P-RC)
+	NAT_LEVEL_SYM:    "Sym",       // Symmetric NAT (Sym) | Sym UDP Firewall
+	NAT_LEVEL_PRCSYM: "P-RC|Sym",  // P-RC | Sym
+}
+
+// NatLevelName 获取 NAT 层级名称
+// @lev NAT 层级
+// @return 返回 NAT 层级名称
+// 如果 lev 超出范围，则返回 "Unknown"。
+func NatLevelName(lev NatLevel) string {
+	if int(lev) < len(natNames) {
+		return natNames[lev]
+	}
+	return "Unknown"
 }
 
 // 请求NewHost协作的节点数
@@ -109,7 +119,7 @@ func (cc *clientApps) Get(sn ClientSN) *Applier {
 // @punch 源客户端打洞信息包
 // @pools NAT 节点池组（0:Pub/FullC; 1:RC; 2:P-RC; 3:Sym）
 // @amount 尝试协助互通的节点数上限
-func servicePunching(conn *websocket.Conn, punch *LinkPeer, pools []*Appliers, amount int) error {
+func servicePunching(conn *websocket.Conn, punch *RelatePeer, pools []*Appliers, amount int) error {
 	if pools == nil {
 		return ErrAppsEmpty
 	}
@@ -129,11 +139,11 @@ func servicePunching(conn *websocket.Conn, punch *LinkPeer, pools []*Appliers, a
 			continue
 		}
 		// 向匹配端写入请求端信息
-		if err = punchingPush(client.Conn, dir[1], punch, base.COMMAND_PUNCHX); err != nil {
+		if err = punchingPush(client.Conn, dir[1], punch, base.COMMAND_REP_PUNCHX); err != nil {
 			return err
 		}
 		// 向请求端写入匹配端信息
-		if err = punchingPush(conn, dir[0], client.LinkPeer, base.COMMAND_PUNCHX); err != nil {
+		if err = punchingPush(conn, dir[0], client.RelatePeer, base.COMMAND_REP_PUNCHX); err != nil {
 			return err
 		}
 		pass[client.Conn] = true
@@ -149,7 +159,7 @@ func servicePunching(conn *websocket.Conn, punch *LinkPeer, pools []*Appliers, a
 // @max 失败再尝试次数
 // @return1 成功匹配的节点
 // @return2 匹配的打洞方向
-func punchingPeer(punch *LinkPeer, pools []*Appliers, max int) (*Applier, *stun.PunchDir, error) {
+func punchingPeer(punch *RelatePeer, pools []*Appliers, max int) (*Applier, *stun.PunchDir, error) {
 	var err error
 	var dir *stun.PunchDir
 	var peer *Applier
@@ -161,9 +171,9 @@ func punchingPeer(punch *LinkPeer, pools []*Appliers, max int) (*Applier, *stun.
 			break
 		}
 		// dir[0] punch
-		// dir[1] peer.LinkPeer
+		// dir[1] peer.RelatePeer
 		// 成功匹配后退出
-		if dir, err = stun.PunchingDir(punch, peer.LinkPeer); err == nil {
+		if dir, err = stun.PunchingDir(punch, peer.RelatePeer); err == nil {
 			break
 		}
 	}
@@ -175,29 +185,29 @@ func punchingPeer(punch *LinkPeer, pools []*Appliers, max int) (*Applier, *stun.
 // @conn 当前客户端连接
 // @punch 当前客户端UDP关联节点
 // @app 打洞的目标应用端
-func punchingOne(conn *websocket.Conn, punch *LinkPeer, app *Applier) error {
+func punchingOne(conn *websocket.Conn, punch *RelatePeer, app *Applier) error {
 	// dir[0] punch
-	// dir[1] app.LinkPeer
-	dir, err := stun.PunchingDir(punch, app.LinkPeer)
+	// dir[1] app.RelatePeer
+	dir, err := stun.PunchingDir(punch, app.RelatePeer)
 	if err != nil {
 		return err
 	}
 	// 先向目标应用端写入
 	// 因为失败的可能性更高，及时终止。
-	if err = punchingPush(app.Conn, dir[1], punch, base.COMMAND_PUNCHX); err != nil {
+	if err = punchingPush(app.Conn, dir[1], punch, base.COMMAND_REP_PUNCHX); err != nil {
 		return err
 	}
 	// 向当前客户端写入
-	return punchingPush(conn, dir[0], app.LinkPeer, base.COMMAND_PUNCHX)
+	return punchingPush(conn, dir[0], app.RelatePeer, base.COMMAND_REP_PUNCHX)
 }
 
 // 向应用端连接写入打洞信息包
 // 信息包依然为两级封装，内层编码需用 stun.DecodePunch 解码。
 // @conn 应用端连接
 // @punch 匹配端的打洞信息包
-// @cmd 封装类别（COMMAND_PUNCHX）
+// @cmd 封装类别（COMMAND_REP_PUNCHX）
 // @return 返回错误通常表示传输失败（对端不在线）
-func punchingPush(conn *websocket.Conn, dir string, punch *LinkPeer, cmd base.Command) error {
+func punchingPush(conn *websocket.Conn, dir string, punch *RelatePeer, cmd base.Command) error {
 	// 内层编码
 	data, err := stun.EncodePunch(dir, punch)
 	if err != nil {

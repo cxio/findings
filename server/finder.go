@@ -1,5 +1,5 @@
 // 作为客户端使用的代码实现
-package node
+package server
 
 import (
 	"context"
@@ -14,14 +14,13 @@ import (
 
 	"github.com/cxio/findings/base"
 	"github.com/cxio/findings/cfg"
-	"github.com/cxio/findings/node/pool"
+	"github.com/cxio/findings/server/pool"
 	"github.com/cxio/findings/stun"
-	"github.com/cxio/findings/stun/natx"
 	"github.com/gorilla/websocket"
 )
 
-// Rnd16 密钥因子类型引用
-type Rnd16 = natx.Rnd16
+// Rnd24 密钥因子类型引用
+type Rnd24 = stun.Rnd24
 
 // Banner 禁闭查询器。
 type Banner struct {
@@ -66,21 +65,21 @@ var (
 // Finder Findings组网节点
 // xhost 用于NewHost通知，让本地服务器向对端请求NewHost协作。
 type Finder struct {
-	*Node                   // TCP 对端节点
-	Conn  *websocket.Conn   // 当前 Websocket 连接
-	udper *natx.Client      // UDP 探测器
-	done  chan struct{}     // 服务结束通知
-	xhost chan *stun.Client // NewHost 请求协助通道
+	*Node                 // TCP 对端节点
+	Conn  *websocket.Conn // 当前 Websocket 连接
+	udper *stun.Client    // UDP 探测器
+	done  chan struct{}   // 服务结束通知
+	xhost chan *stun.Node // NewHost 请求协助通道
 }
 
 // NewFinder 新建一个Finder
-func NewFinder(node *Node, conn *websocket.Conn, udpc *natx.Client) *Finder {
+func NewFinder(node *Node, conn *websocket.Conn, udpc *stun.Client) *Finder {
 	return &Finder{
 		Node:  node,
 		Conn:  conn,
 		udper: udpc,
 		done:  make(chan struct{}),
-		xhost: make(chan *stun.Client, 1),
+		xhost: make(chan *stun.Node, 1),
 	}
 }
 
@@ -181,7 +180,7 @@ func (f *Finder) process(data []byte, conn *websocket.Conn, notice chan<- *stun.
 	switch cmd {
 	// 信息互助
 	// 分享彼此自己候选池中的Findings节点信息。
-	case base.COMMAND_PEER:
+	case base.COMMAND_X_PEER:
 		go func() {
 			// 接收：在线测试耗时，独立处理。
 			if err := findingsGets(data, shortList, BanQuery); err != nil {
@@ -206,52 +205,60 @@ func (f *Finder) process(data []byte, conn *websocket.Conn, notice chan<- *stun.
 		notice <- stun.NewNotice(stun.UDPSEND_NEWHOST, addr, sn)
 
 	// 作为客户端时的逻辑
-	// 当外部调用 Finder.NatLevel|.NatLive|.Punching 时接收响应。
+	// 当外部调用 Finder.ConeNat|NatSym|NatLive|Punching 时接收响应。
 	// data: stun.ServInfo
 	//----------------------------------------------------------
 
 	// STUN:Cone 主服务
-	case base.COMMAND_STUN_CONE:
+	case base.COMMAND_REP_STUN_CONE:
 		// TCP远端仅用于提取IP
-		if err := f.setClientInfo(data, conn.RemoteAddr()); err != nil {
+		if err := f.setBaseInfo(data, conn.RemoteAddr()); err != nil {
 			return err
 		}
-		if err := f.udper.Dial(); err != nil {
-			return err
-		}
-		f.udper.Tester <- natx.STUN_CONE
+		go func() { f.udper.Dial() }()
+
+		f.udper.SetChkType(stun.STUN_CONE)
 
 	// STUN:Sym 副服务
-	case base.COMMAND_STUN_SYM:
-		if err := f.setClientInfo(data, conn.RemoteAddr()); err != nil {
+	case base.COMMAND_REP_STUN_SYM:
+		if err := f.setBaseInfo(data, conn.RemoteAddr()); err != nil {
 			return err
 		}
-		if err = f.udper.Dial(); err != nil {
-			return err
-		}
-		f.udper.Tester <- natx.STUN_SYM
+		go func() { f.udper.Dial() }()
+
+		f.udper.SetChkType(stun.STUN_SYM)
 
 	// NAT 生存期侦测
-	// 需要已执行过 STUN:Cone|Sym，此不再拨号。
-	case base.COMMAND_STUN_LIVE:
-		if !f.udper.Dialled() {
-			return natx.ErrNotAddr
-		}
-		if err := f.setClientInfo(data, conn.RemoteAddr()); err != nil {
+	case base.COMMAND_REP_STUN_LIVE:
+		if err := f.setBaseInfo(data, conn.RemoteAddr()); err != nil {
 			return err
 		}
-		f.udper.Tester <- natx.STUN_LIVE
+		// 如果前期没有 STUN:Cone|Sym 探测过
+		if !f.udper.Dialled() {
+			go func() { f.udper.Dial() }()
+		}
+		f.udper.SetChkType(stun.STUN_LIVE)
 
 	// 取得自己的UDP地址
-	case base.COMMAND_PEERUDP:
+	case base.COMMAND_REP_PEERUDP:
 		addr, err := stun.DecodeUDPInfo(data)
 		if err != nil {
 			return err
 		}
-		f.udper.UDPeer <- addr
+		f.udper.SetAddr(addr)
+
+		// 执行解析。
+		switch f.udper.ChkType() {
+		case stun.STUN_CONE:
+			f.udper.Tester <- stun.STUN_CONE
+		case stun.STUN_SYM:
+			f.udper.Tester <- stun.STUN_SYM
+		case stun.STUN_LIVE:
+			f.udper.Tester <- stun.STUN_LIVE
+		}
 
 	// 服务器端收益地址
-	case base.COMMAND_STAKE:
+	case base.COMMAND_REP_STAKE:
 		_, stake, err := base.DecodeStake(data)
 		if err != nil {
 			loger.Println("[Error]", err)
@@ -291,7 +298,7 @@ func (f *Finder) simpleProcess(msg string, conn *websocket.Conn) error {
 // @data 服务端发送的信息
 // @addr 服务器IP地址
 // @return 半个密钥因子
-func (f *Finder) setClientInfo(data []byte, addr net.Addr) error {
+func (f *Finder) setBaseInfo(data []byte, addr net.Addr) error {
 	serv, err := stun.DecodeServInfo(data)
 	if err != nil {
 		return err
@@ -305,63 +312,49 @@ func (f *Finder) setClientInfo(data []byte, addr net.Addr) error {
 
 // NewHost 请求对端发送一个UDP探测包。
 // @peer UDP探测包的接收端
-func (f *Finder) NewHost(peer *stun.Client) {
+func (f *Finder) NewHost(peer *stun.Node) {
 	f.xhost <- peer
 }
 
-// NatLevel 请求NAT层级探测服务。
-// 作为客户端，向当前TCP连接的对端请求NAT探测服务。
-//   - 首先请求 STUN:Cone 主服务，
-//   - 视情况决定是否向其它对端请求 STUN:Sym 服务。
-//     注：依然是以应用端连出的对端。
-//
-// 这是一个阻塞的调用，如果未出错，会等到分析出结果才返回。
-//
-// 使用：
-// 初始向对端请求本服务时，需先向服务器声明自己的目的。
-// 即 base.Kind.seek 字段设置为 SEEK_APPSERV。
-//
-//	kind := base.EncodeKind(...)
-//	base.EncodeProto(base.COMMAND_KIND, kind)
-//
-// @return 自身所属的NAT层级
-func (f *Finder) NatLevel() (NatLevel, error) {
+// ConeNat 请求NAT层级探测服务（STUN:Cone）。
+// 作为客户端，向当前TCP连接池中的一个Finder请求NAT探测服务。
+// 这是一个阻塞的调用。
+// 返回值：
+// - NAT_LEVEL_ERROR 探测出错。
+// - NAT_LEVEL_PRCSYM 需进一步探测（STUN:Sym）。
+// @return NAT层级（NatLevel）
+func (f *Finder) ConeNat() (NatLevel, error) {
 	// STUN:Cone
 	err := f.Conn.WriteMessage(websocket.TextMessage, []byte(base.CmdStunCone))
 	if err != nil {
 		return NAT_LEVEL_ERROR, err
 	}
 	loger.Printf("Send STUN:Cone request [%s].\n", f.Node)
+	lev := f.udper.NatLevel()
 
-	// 若成功
-	if lev := <-f.udper.LevCone; lev < NAT_LEVEL_PRCSYM {
-		return lev, nil
+	if lev == NAT_LEVEL_ERROR {
+		loger.Println("[Error] STUN:Cone failed:", ErrNotStarted)
+		return NAT_LEVEL_ERROR, ErrNotStarted
 	}
-
-	// 向另一个对端请求 STUN:Sym
-	node := findings.Other(f)
-	if node == nil {
-		return NAT_LEVEL_ERROR, ErrEmptyPool
-	}
-	return node.natLevel(f.udper.PubAddr())
+	return lev, nil
 }
 
-// 请求对端的 STUN:Sym 服务。
-// 这是向连接池中另一个节点请求服务，避免IP相同。
-// 也即：
-// 本Finder与调用者不是同一个连接对。
+// NatSym 请求对端的 STUN:Sym 服务。
+// 当 STUN:Cone 探测结果为 NAT_LEVEL_PRCSYM 时才需要执行。
+// 注意：
+// 这是向连接池中另一个节点（findings.Other）请求服务，避免IP相同。
 //
-// @src 请求者自己获取的UDP地址（STUN:Cone）
-func (f *Finder) natLevel(src *net.UDPAddr) (NatLevel, error) {
+// @prv 之前请求（STUN:Cone）获取的UDP地址
+func (f *Finder) NatSym(prv *net.UDPAddr) (NatLevel, error) {
 	// STUN:Sym
 	err := f.Conn.WriteMessage(websocket.TextMessage, []byte(base.CmdStunSym))
 	if err != nil {
 		return NAT_LEVEL_ERROR, err
 	}
-	f.udper.SetCmpAddr(src)
+	f.udper.SetCmpAddr(prv)
 	loger.Printf("Send STUN:Sym request [%s].\n", f.Node)
 
-	return <-f.udper.LevSym, nil
+	return f.udper.NatLevel(), nil
 }
 
 // NatLive 请求NAT生存期探测服务。
@@ -377,13 +370,13 @@ func (f *Finder) NatLive() (time.Duration, error) {
 	}
 	loger.Printf("Send STUN:Live request [%s].\n", f.Node)
 
-	return <-f.udper.Live, nil
+	return f.udper.LiveTime(), nil
 }
 
 // Punching 请求打洞协助。
 // 作为客户端，向当前TCP连接的对端请求打洞协助。
 // @peer 自身关联的UDP节点信息
-func (f *Finder) Punching(peer *LinkPeer) error {
+func (f *Finder) Punching(peer *RelatePeer) error {
 	// 方向由服务器决定
 	info, err := stun.EncodePunch("", peer)
 	if err != nil {
@@ -572,11 +565,11 @@ func finderShare(finder *Finder, list *Shortlist, aban chan<- string) error {
 	if nodes == nil {
 		return ErrEmptyPool
 	}
-	if err = findingsPush(finder.Conn, nodes, base.COMMAND_PEER); err != nil {
+	if err = findingsPush(finder.Conn, nodes, base.COMMAND_X_PEER); err != nil {
 		return err
 	}
 	// 接收分享回馈
-	if err = receivePeers(finder.Conn, list, base.COMMAND_PEER); err != nil {
+	if err = receivePeers(finder.Conn, list, base.COMMAND_X_PEER); err != nil {
 		loger.Println("[Error] receive shared peers.")
 		// 加入黑名单
 		// 理由：在线且可正常接收数据，但无法提供正常的服务。
@@ -732,7 +725,7 @@ func filterBanned(nodes []*Node, qban chan *Banner) []*Node {
 }
 
 // 编码NewHost请求的数据。
-func hostoData(cli *stun.Client) ([]byte, error) {
+func hostoData(cli *stun.Node) ([]byte, error) {
 	// 消息编码
 	data, err := stun.EncodeHosto(cli.Addr, cli.SN)
 	if err != nil {

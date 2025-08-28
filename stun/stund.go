@@ -19,7 +19,7 @@ var ErrLenSN = errors.New("sn length is bad")
 func EncodeServInfo(port int, sn, key, token []byte) ([]byte, error) {
 	its := &ServInfo{
 		Port:  int32(port),
-		Sn32:  sn,
+		Sn48:  sn,
 		Skey:  key,
 		Token: token,
 	}
@@ -38,16 +38,17 @@ func DecodeServInfo(data []byte) (*ServInfo, error) {
 
 // EncodeLiveNAT 编码LiveNAT的数据
 // 其中批次和序列号为明文，地址在protoBuf编码之前会被加密。
+// 使用者：客户端
 // @cnt 发送批次
 // @sn 服务器分配的序列号
-// @addr 客户端先前的UDP地址（已加密）
-// 使用者：客户端
+// @port 客户端先前的UDP端口
+// @return 编码后的数据
 func EncodeLiveNAT(cnt byte, sn ClientSN, port int) ([]byte, error) {
-	sn33 := [33]byte{cnt}
-	copy(sn33[1:], sn[:])
+	sn49 := [1 + LenSN]byte{cnt}
+	copy(sn49[1:], sn[:])
 
 	buf := &LiveNAT{
-		Sn33: sn33[:],
+		Sn49: sn49[:],
 		Port: int32(port),
 	}
 	return proto.Marshal(buf)
@@ -68,7 +69,7 @@ func DecodeLiveNAT(data []byte) (byte, ClientSN, int, error) {
 	if err := proto.Unmarshal(data, buf); err != nil {
 		return 0, ClientSN{}, 0, err
 	}
-	return buf.Sn33[0], ClientSN(buf.Sn33[1:]), int(buf.Port), nil
+	return buf.Sn49[0], ClientSN(buf.Sn49[1:]), int(buf.Port), nil
 }
 
 // EncodeHosto 编码客户端UDP信息
@@ -78,7 +79,7 @@ func EncodeHosto(addr *net.UDPAddr, sn ClientSN) ([]byte, error) {
 	its := &Hosto{
 		Ip:   addr.IP,
 		Port: int32(addr.Port),
-		Sn32: sn[:],
+		Sn48: sn[:],
 	}
 	return proto.Marshal(its)
 }
@@ -94,11 +95,11 @@ func DecodeHosto(data []byte) (*net.UDPAddr, ClientSN, error) {
 	if _, ok := netip.AddrFromSlice(buf.Ip); !ok {
 		return nil, ClientSN{}, ErrParseIP
 	}
-	if len(buf.Sn32) != LenSN {
+	if len(buf.Sn48) != LenSN {
 		return nil, ClientSN{}, ErrLenSN
 	}
 
-	return &net.UDPAddr{IP: buf.Ip, Port: int(buf.Port)}, ClientSN(buf.Sn32), nil
+	return &net.UDPAddr{IP: buf.Ip, Port: int(buf.Port)}, ClientSN(buf.Sn48), nil
 }
 
 // EncodeUDPInfo 编码客户端UDP信息。

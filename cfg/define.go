@@ -9,7 +9,7 @@
 // 禁闭节点
 // --------
 // 程序运行过程中，不友好节点会被临时禁闭排除。
-// 用户也可以配置一个节点清单，但它们也遵循同样的时效期。
+// 用户也可以配置一个节点清单。
 // 禁闭配置文件（bans.json）在应用程序系统缓存目录下，如果不存在可手工创建。
 // 内容为简单的地址（IP:Port）清单。
 //
@@ -25,28 +25,28 @@ import (
 	"time"
 )
 
-// 基本配置常量。
+// 外部配置默认值。
 const (
 	UserID         = ""   // 本节点的身份ID（群组时用）
 	ServerPort     = 7788 // 默认服务端口（TCP）
 	RemotePort     = 7788 // 远端目标端口（TCP）
+	ListFindings   = 40   // 本类节点候选名单长度
+	MaxApps        = 500  // 每种应用默认的节点连接数上限
+	PeersHelp      = 10   // 上线协助发送条目数
+	STUNPeerAmount = 6    // 打洞协助连系的节点数
+	PeerFindRange  = 200  // 节点寻找的范围（基于起点）
+	BufferSize     = 1024 // 连接读写缓冲区大小
+	STUNLiving     = true // 是否启动 STUN:Live 服务（NAT生命期探测）
 	UDPListen      = 7080 // 本地 NAT 类型探测监听端口
 	UDPLiving      = 7181 // 本地 NAT 生命期探测监听端口
-	MaxFinders     = 10   // 组网节点连接数
-	PeersHelp      = 8    // 上线协助发送条目数
-	MaxApps        = 500  // 每种应用默认的节点连接数上限
-	ListFindings   = 40   // 本类节点候选名单长度
-	BufferSize     = 1024 // 连接读写缓冲区大小
-	PeerFindRange  = 200  // 节点寻找的范围（基于起点）
-	STUNPeerAmount = 5    // 打洞协助连系的节点数
-	STUNLiving     = true // 是否启动 STUN:Live 服务（NAT生命期探测）
 	STUNClient     = true // 是否需要NAT层级&生存期探测
 )
 
 // 开发配置常量
 // 部分值关系到安全，不提供外部可配置。
 const (
-	SomeFindings    = 10                // 本类端组网发送条目数
+	MaxFinders      = 20                // 组网节点连接数
+	SomeFindings    = 10                // 组网分享发送条目数
 	AppServerTCP    = 6                 // 应用端请求TCP服务器节点数量
 	STUNTryMax      = 4                 // 打洞协助单次失败再尝试最大次数
 	FinderPatrol    = time.Minute * 10  // 本类节点连接切换巡查间隔
@@ -104,18 +104,17 @@ func (p *Peer) String() string {
 // 仅在App内置节点已不可用，且也没有其它可连接的节点配置时才需要。
 type Config struct {
 	UserID         string `json:"user_id,omitempty"`          // 本节点的身份ID（群组时用）
+	LogDir         string `json:"log_dir,omitempty"`          // 日志根目录
 	ServerPort     int    `json:"server_port,omitempty"`      // 本地服务端口
 	RemotePort     int    `json:"remote_port,omitempty"`      // 远端节点服务端口（7788|443|0|...）
+	Shortlist      int    `json:"shortlist,omitempty"`        // 候选池大小
+	ConnApps       int    `json:"applications,omitempty"`     // 应用池大小
+	PeersHelp      int    `json:"peers_help,omitempty"`       // 上线帮助发送条目数
+	STUNPeerAmount int    `json:"stun_peer_amount,omitempty"` // 打洞协助连接节点数
+	PeerFindRange  int    `json:"peers_range,omitempty"`      // 基于起点，节点寻找的范围
+	BufferSize     int    `json:"buffer_size,omitempty"`      // 连接读写缓冲区大小
+	STUNLiving     bool   `json:"stun_living,omitempty"`      // 是否启动全局 UDP:STUN 服务
 	UDPListen      int    `json:"udp_listen,omitempty"`       // 本地 NAT 类型探测监听端口
 	UDPLiving      int    `json:"udp_living,omitempty"`       // 本地 NAT 生命期探测监听端口
-	LogDir         string `json:"log_dir,omitempty"`          // 日志根目录
-	Findings       int    `json:"findings,omitempty"`         // 同时连接的本类节点数
-	PeersHelp      int    `json:"peers_help,omitempty"`       // 上线帮助发送条目数
-	ConnApps       int    `json:"applications,omitempty"`     // 可同时连接的应用端数量上限
-	Shortlist      int    `json:"shortlist,omitempty"`        // 本类节点候选名单长度
-	BufferSize     int    `json:"buffer_size,omitempty"`      // 连接读写缓冲区大小
-	PeerFindRange  int    `json:"peers_range,omitempty"`      // 基于起点，节点寻找的范围
-	STUNPeerAmount int    `json:"stun_peer_amount,omitempty"` // 打洞协助连接节点数
-	STUNLiving     bool   `json:"stun_living,omitempty"`      // 是否启动全局 UDP:STUN 服务
 	STUNClient     bool   `json:"stun_client,omitempty"`      // 是否需要NAT层级&生存期探测
 }

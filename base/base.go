@@ -23,21 +23,21 @@
 // 指令：			数据 （服务器 <=> 客户端）
 // ------------------------------------------------------------------
 // COMMAND_KIND: 		<=| Kind{ Base, Name, Seek }
-// COMMAND_HELP:		|=> []node.Peer{ Ip, Port }
-// COMMAND_PEER:		<=> []node.Peer{ Ip, Port }
-// COMMAND_STAKE:		|=> []byte
-// COMMAND_KINDLIST:		|=> []Kind{ Base, Name }
+// COMMAND_REP_HELP:		|=> []node.Peer{ Ip, Port }
+// COMMAND_X_PEER:		<=> []node.Peer{ Ip, Port }
+// COMMAND_REP_STAKE:		|=> []byte
+// COMMAND_REP_KINDLIST:	|=> []Kind{ Base, Name }
 // COMMAND_APPKIND:		<=| Kind{ Base, Name }
-// COMMAND_PEERSTCP:		|=> []node.Peer { Ip, Port }
+// COMMAND_REP_PEERSTCP:	|=> []node.Peer { Ip, Port }
 // COMMAND_PUNCH:		<=| stun.Punchx{ "", IP, Port...}
 // COMMAND_PUNCH_REG		<=| stun.Punchx{ "", IP, Port...}
 // COMMAND_PUNCH_GET		<=| stun.Punchx{ "", IP, Port...}
 // COMMAND_PUNCH2:		<=| stun.PunchOne{ "", IP, Port, Target}
-// COMMAND_PUNCHX:		|=> stun.Punchx{ Dir, Ip, Port... } ...
-// COMMAND_PEERUDP:		|=> stun.UDPInfo{ Ip, Port }
-// COMMAND_STUN_CONE:		|=> stun.ServInfo{ Port, Sn32, Skey, Token }
-// COMMAND_STUN_SYM:		|=> stun.ServInfo{ ... }
-// COMMAND_STUN_LIVE:		|=> stun.ServInfo{ ... }
+// COMMAND_REP_PUNCHX:		|=> stun.Punchx{ Dir, Ip, Port... } ...
+// COMMAND_REP_PEERUDP:		|=> stun.UDPInfo{ Ip, Port }
+// COMMAND_REP_STUN_CONE:	|=> stun.ServInfo{ Port, Sn32, Skey, Token }
+// COMMAND_REP_STUN_SYM:	|=> stun.ServInfo{ ... }
+// COMMAND_REP_STUN_LIVE:	|=> stun.ServInfo{ ... }
 // COMMAND_STUN_HOST:		<=| stun.Hosto { Ip, Port, Sn32 }
 //
 // Date: 2024.11.01 @cxio
@@ -49,7 +49,7 @@ package base
 import (
 	"log"
 
-	"github.com/cxio/findings/crypto/utilx"
+	"github.com/cxio/findings/base/utilx"
 )
 
 // 简单指令（无数据）
@@ -72,24 +72,24 @@ type Command byte
 // 指令定义
 // 本类指令都包含附带的交互数据，指令值和数据会一起打包传输。
 const (
-	COMMAND_INVALID   Command = iota // 0: 无效类型
-	COMMAND_KIND                     // 通用：初始向服务器声明自己的请求种类
-	COMMAND_HELP                     // 本网：服务器发送上线协助数据（临时连接）
-	COMMAND_PEER                     // 本网：双方交换Findings节点信息
-	COMMAND_STAKE                    // 应用：服务器传送的相应类型的权益地址
-	COMMAND_KINDLIST                 // 应用：服务器返回自己支持的应用类型（data: list）
-	COMMAND_APPKIND                  // 应用：应用端向服务器查询是否支持目标应用类型
-	COMMAND_PEERSTCP                 // 应用：服务器返回支持 TCP 直连的节点清单（data: list）
-	COMMAND_PUNCH                    // 应用：应用端请求打洞协助并登记（data: udp-peer）
-	COMMAND_PUNCH_REG                // 应用：应用端请求打洞协助仅登记（data: udp-peer）
-	COMMAND_PUNCH_GET                // 应用：应用端请求打洞协助仅请求（data: udp-peer）
-	COMMAND_PUNCH2                   // 应用：应用端登记或请求定向打洞协助（data: udp-peer, [target]）
-	COMMAND_PUNCHX                   // 应用：服务器提供打洞信令协助（data: udp-peer）
-	COMMAND_PEERUDP                  // 应用：服务器回应对端UDP节点信息
-	COMMAND_STUN_CONE                // STUN：服务器回应NAT类型侦测主服务
-	COMMAND_STUN_SYM                 // STUN：服务器回应NAT类型侦测副服务
-	COMMAND_STUN_LIVE                // STUN：服务器回应NAT存活期侦测服务
-	COMMAND_STUN_HOST                // STUN：请求对端NewHost协助，向其提供UDP地址
+	COMMAND_INVALID       Command = iota // 0: 无效类型
+	COMMAND_KIND                         // 通用：初始向服务器声明自己的请求种类
+	COMMAND_REP_HELP                     // 本网：服务器回应上线协助数据（临时连接）
+	COMMAND_X_PEER                       // 本网：双方交换Findings节点信息
+	COMMAND_REP_STAKE                    // 应用：服务器传送的相应类型的权益地址
+	COMMAND_REP_KINDLIST                 // 应用：服务器返回自己支持的应用类型（data: list）
+	COMMAND_APPKIND                      // 应用：应用端向服务器查询是否支持目标应用类型
+	COMMAND_REP_PEERSTCP                 // 应用：服务器返回支持 TCP 直连的节点清单（data: list）
+	COMMAND_PUNCH                        // 应用：应用端请求打洞协助并登记（data: udp-peer）
+	COMMAND_PUNCH_REG                    // 应用：应用端请求打洞协助仅登记（data: udp-peer）
+	COMMAND_PUNCH_GET                    // 应用：应用端请求打洞协助仅请求（data: udp-peer）
+	COMMAND_PUNCH2                       // 应用：应用端登记或请求定向打洞协助（data: udp-peer, [target]）
+	COMMAND_REP_PUNCHX                   // 应用：服务器提供打洞信令协助（data: udp-peer）
+	COMMAND_REP_PEERUDP                  // 应用：服务器回应对端UDP节点信息
+	COMMAND_REP_STUN_CONE                // STUN：服务器回应NAT类型侦测主服务
+	COMMAND_REP_STUN_SYM                 // STUN：服务器回应NAT类型侦测副服务
+	COMMAND_REP_STUN_LIVE                // STUN：服务器回应NAT存活期侦测服务
+	COMMAND_STUN_HOST                    // STUN：请求对端NewHost协助（同时向其提供UDP地址）
 )
 
 // 全局随机种子

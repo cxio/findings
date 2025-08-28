@@ -1,6 +1,6 @@
-// Package node 节点模块
+// Package server 实现服务器部分的功能
 // 包含Findings候选池、连接池以及应用节点池的支持。
-package node
+package server
 
 import (
 	"context"
@@ -14,9 +14,8 @@ import (
 
 	"github.com/cxio/findings/base"
 	"github.com/cxio/findings/cfg"
-	"github.com/cxio/findings/node/pool"
+	"github.com/cxio/findings/server/pool"
 	"github.com/cxio/findings/stun"
-	"github.com/cxio/findings/stun/natx"
 	"github.com/gorilla/websocket"
 )
 
@@ -26,6 +25,9 @@ var (
 
 	// 发送了错误的消息
 	ErrSendIllegal = errors.New("the client sent an illegal message")
+
+	// 尚未启动NAT探测
+	ErrNotStarted = errors.New("the NAT test is not started")
 
 	// 消息格式错误
 	ErrMsgFormat = errors.New("invalid message format")
@@ -64,7 +66,7 @@ var (
 	appMaps AppPool
 
 	// UDP 客户端
-	clientUDP *natx.Client
+	clientUDP *stun.Client
 
 	// NAT 探测协作通知渠道
 	// 本地TCP服务器与本地UDP服务器之间的通讯通道。
@@ -72,7 +74,7 @@ var (
 
 	// NAT 探测客户端信息通道
 	// 由本地UDP服务器解析对端UDP地址后，转发至TCP服务器的通道。
-	stunClient <-chan *stun.Client
+	stunNode <-chan *stun.Node
 
 	// 服务器权益地址池
 	// - key: 应用类型名
@@ -93,7 +95,7 @@ var (
 // @done 广域搜索终止通知
 func Init(ctx context.Context, conf *cfg.Config, stakes map[string]string, chpeer <-chan *cfg.Peer, done chan<- struct{}) {
 	cfgUser = conf
-	findings = NewFinders(conf.Findings)
+	findings = NewFinders(cfg.MaxFinders)
 	shortList = NewShortlist(conf.Shortlist)
 	tcpStores = NewTCPStorePool()
 
@@ -104,13 +106,13 @@ func Init(ctx context.Context, conf *cfg.Config, stakes map[string]string, chpee
 	}
 	// STUN:NAT 探测服务
 	// 普通非公网Findings节点也可配合执行NewHost发送。
-	stunClient = stun.ListenUDP(ctx, conf.UDPListen, base.GlobalSeed, stunNotice)
+	stunNode = stun.ListenUDP(ctx, conf.UDPListen, base.GlobalSeed, stunNotice)
 
 	// 作为NAT受限客户端
 	// - 需要探测自身NAT层级以及NAT生存期。
 	// - 需要UDP打洞连接其它Finder节点增强交互。
 	if conf.STUNClient {
-		client, err := natx.ListenUDP(ctx)
+		client, err := stun.ListenClientUDP(ctx)
 		if err != nil {
 			loger.Fatalln("[Fatal] create Client:UDP failed:", err)
 		}
@@ -183,7 +185,7 @@ func ProcessOnKind(kind *base.Kind, conn *websocket.Conn, w http.ResponseWriter)
 			break
 		}
 		// 推送一些Findings节点。
-		if err := findingsPush(conn, list, base.COMMAND_HELP); err != nil {
+		if err := findingsPush(conn, list, base.COMMAND_REP_HELP); err != nil {
 			loger.Println("Error", err)
 			http.Error(w, "Some internal errors", http.StatusInternalServerError)
 		}
@@ -193,7 +195,7 @@ func ProcessOnKind(kind *base.Kind, conn *websocket.Conn, w http.ResponseWriter)
 	// 原因：
 	// 用户需要首先知道哪些Finder支持自己所属的应用。
 	case base.SEEK_KINDAPP:
-		if err := findingsKinds(conn, serviceKinds, base.COMMAND_KINDLIST); err != nil {
+		if err := findingsKinds(conn, serviceKinds, base.COMMAND_REP_KINDLIST); err != nil {
 			loger.Println("[Error] put service kinds:", err)
 		}
 
@@ -234,7 +236,7 @@ func ProcessOnKind(kind *base.Kind, conn *websocket.Conn, w http.ResponseWriter)
 		app := NewApplier(node, kname, conn)
 
 		// 阻塞：提供服务
-		app.Server(ctx, stunNotice, stunClient)
+		app.Server(ctx, stunNotice, stunNode)
 
 	// 登记TCP服务器
 	// 用于第三方应用端获得自己同类的可直连服务器。
@@ -647,7 +649,7 @@ loop:
 // 定时检查组网池和候选池节点情况：
 // - 如果连接池成员充足，随机更新一个连接。
 // - 如果连接池成员不足，从候选池提取随机成员补充至满员。
-// - 随机对1个连接池成员分享节点信息（COMMAND_PEER）。
+// - 随机对1个连接池成员分享节点信息（COMMAND_X_PEER）。
 // 注记：
 // 节点间交换信息融入候选池时，会先检查交换的节点的在线情况。
 // 从候选池取出节点补充组网池连接时，也会再测试一次对端是否在线。
@@ -794,7 +796,7 @@ func findingsHelp(peer *cfg.Peer, long time.Duration, pool *Shortlist, aban chan
 	}
 	// 接收协助
 	// 不提供正确协助的对端被加入黑名单。
-	if err = receivePeers(conn, pool, base.COMMAND_HELP); err != nil {
+	if err = receivePeers(conn, pool, base.COMMAND_REP_HELP); err != nil {
 		aban <- conn.RemoteAddr().String()
 		return err
 	}
@@ -841,7 +843,7 @@ func writeStake(conn *websocket.Conn, id, stake string) error {
 	if err != nil {
 		return err
 	}
-	data, err = base.EncodeProto(base.COMMAND_STAKE, data)
+	data, err = base.EncodeProto(base.COMMAND_REP_STAKE, data)
 	if err != nil {
 		return err
 	}

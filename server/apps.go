@@ -1,6 +1,6 @@
 // 定向打洞服务部分。
 
-package node
+package server
 
 import (
 	"sync"

@@ -32,11 +32,11 @@ const (
 // SEEK_KINDAPP: 服务器发送一个Kind集合。Command: COMMAND_KINDLIST
 // SEEK_PEERTCP: 如果失败，服务器向客户端回应一个错误消息，否则仅为一个CmdFindBye。
 const (
-	SEEK_FINDNET = "find:net" // 寻求：Findings组网
-	SEEK_ASSISTX = "assist:x" // 寻求：上线协助
-	SEEK_APPSERV = "app:serv" // 寻求：应用服务（NAT探测、打洞协助、TCP服务节点）
-	SEEK_KINDAPP = "kind:app" // 寻求：应用支持清单
-	SEEK_PEERTCP = "peer:tcp" // 寻求：登记TCP服务器（可直连）
+	SEEK_FINDNET = "find:net" // Findings组网
+	SEEK_ASSISTX = "assist:x" // 上线协助
+	SEEK_APPSERV = "app:serv" // 应用服务（NAT探测、打洞协助、TCP服务节点）
+	SEEK_KINDAPP = "kind:app" // 应用支持清单
+	SEEK_PEERTCP = "peer:tcp" // 登记可直连TCP服务器
 )
 
 // ErrBaseKind 基础类型名错误。

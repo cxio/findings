@@ -36,4 +36,15 @@ message Stake {
     string addr = 2;    // 收益地址（区块链）
 }
 
+// 节点信息
+// 每一个在线节点都应当有的信息（UDP）。
+// type 中冒号前的部分为基础类型名称，冒号后的 xx 部分为具体应用的名称。
+// SPKI 用于自签名证书的公钥哈希验证。
+message NodeInfo {
+    string type = 1;    // 节点类型：depots:xx | blockchain:xx | app:xx | findings:xx
+    string addr = 2;    // 地址：IP:Port（NAT映射）
+    string nat = 3;     // NAT类型：Pub/FullC | RC | P-RC | Sym
+    bytes spki = 4;     // 自签证书的公钥编码哈希（SPKI）
+}
+
 option go_package = "../base";

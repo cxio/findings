@@ -50,10 +50,10 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/cxio/findings/base"
+	"github.com/cxio/findings/base/ips"
+	"github.com/cxio/findings/base/selfsign"
 	"github.com/cxio/findings/cfg"
-	"github.com/cxio/findings/crypto/selfsign"
-	"github.com/cxio/findings/ips"
-	"github.com/cxio/findings/node"
+	"github.com/cxio/findings/server"
 )
 
 // websocket 升级器
@@ -111,10 +111,10 @@ func main() {
 	chpeer, done := ips.Finding(ctx, conf.RemotePort, peers, conf.PeerFindRange)
 
 	// 节点模块初始化
-	node.Init(ctx, conf, stakes, chpeer, done)
+	server.Init(ctx, conf, stakes, chpeer, done)
 
 	// 恶意节点监察
-	go serverBans(ctx, bans, node.BanAddto, node.BanQuery)
+	go serverBans(ctx, bans, server.BanAddto, server.BanQuery)
 
 	// 阻塞：启动服务
 	serviceListen(conf.ServerPort)
@@ -194,7 +194,7 @@ func serviceListen(port int) {
 // 注：
 // 除了用户外部配置的外，恶意节点仅为即时存在，并不存储。
 // 因为如果程序退出，新连接的节点已经变化。
-func serverBans(ctx context.Context, bans map[string]time.Time, banAddto chan string, banQuery chan *node.Banner) {
+func serverBans(ctx context.Context, bans map[string]time.Time, banAddto chan string, banQuery chan *server.Banner) {
 	loger.Println("Start peer banning server.")
 loop:
 	for {
@@ -288,7 +288,7 @@ func handleConnect(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		// 按类别处理（顶层）
-		node.ProcessOnKind(kind, conn, w)
+		server.ProcessOnKind(kind, conn, w)
 	}
 	// 友好
 	conn.WriteMessage(websocket.TextMessage, []byte(base.CmdFindBye))

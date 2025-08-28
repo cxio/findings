@@ -2,24 +2,17 @@
 // Released under the MIT license
 //////////////////////////////////////////////////////////////////////////////
 //
-// 用法：
-// ---------------------------------------------------------------------------
-//
 // 加密：
-// 服务器和客户端的TCP连接应使用安全链路，用来传输敏感的信息，其中就包含密钥。
-// 密钥由服务器端构造，用来加密服务器与客户端之间的UDP数据。
-//
-// 密钥的构造：
-//
-//	Hash256(seed:32 + rnd:24) => [32]byte（密钥）
-//
+// 服务器和客户端的TCP连接使用安全链路，用来传输敏感的信息，
+// 其中就包含UDP链路上需要的加密密钥（对称密钥）。
+// 密钥由服务端构造：
+//	Hash256(Seed:32 + Rand:24) => [32]byte（密钥）
 // 其中：
-// - seed:32 为服务器当前运行时环境的随机数种子，32字节长。
-// - rnd:24  密钥因子。构造序列号时提取的随机序列。
+// - Seed:32 为服务端当前运行时环境的随机数种子，32字节长。
+// - Rand:24 为密钥因子。在构造序列号时提取的随机序列。
 // ---------------------------------------------------------------------------
 //
 // 序列号：
-// ---------------------------------------------------------------------------
 // 由服务器端派发，虽然是一个随机序列，但与客户端IP相关联。
 // 序列号是当次事务的标识。
 //
@@ -31,11 +24,10 @@
 // - IP 为客户端的公网IP地址
 // - Seed:32 为服务器端随机数种子，服务器启动后即固定不变。
 // - Rand:24 为一个随机序列，24字节长。
+// ---------------------------------------------------------------------------
 //
 // 日志：
-// ---------------------------------------------------------------------------
-// 本包独立性较强，
-// 因此本包及其子包，日志采用标准库默认形式，不进入Findings日志文件。
+// 本包独立性较强，因此日志采用标准库默认形式，不进入Findings日志文件。
 //
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -53,7 +45,7 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/cxio/findings/crypto/utilx"
+	"github.com/cxio/findings/base/utilx"
 )
 
 // NatLevel NAT层级
@@ -61,12 +53,12 @@ type NatLevel int
 
 // NAT 分层定义
 const (
-	NAT_LEVEL_NULL   NatLevel = iota // 0: Public | Public@UPnP | Full Cone
-	NAT_LEVEL_RC                     // 1: Restricted Cone (RC)
-	NAT_LEVEL_PRC                    // 2: Port Restricted Cone (P-RC)
-	NAT_LEVEL_SYM                    // 3: Symmetric NAT (Sym) | Sym UDP Firewall
-	NAT_LEVEL_PRCSYM                 // 4: P-RC | Sym
-	NAT_LEVEL_ERROR                  // 5: UDP不可用，或探测错误默认值
+	NAT_LEVEL_ERROR  NatLevel = iota - 1 // -1: UDP不可用或探测错误
+	NAT_LEVEL_NULL                       // 0:  Public | Public@UPnP | Full Cone
+	NAT_LEVEL_RC                         // 1:  Restricted Cone (RC)
+	NAT_LEVEL_PRC                        // 2:  Port Restricted Cone (P-RC)
+	NAT_LEVEL_SYM                        // 3:  Symmetric NAT (Sym) | Sym UDP Firewall
+	NAT_LEVEL_PRCSYM                     // 4:  P-RC | Sym
 )
 
 // UDPSendi 服务器UDP发送方式
@@ -83,13 +75,16 @@ const (
 // 格式：24 + 24 = 48
 const LenSN = 48
 
-// ClientSN 客户端序列号类型
+// ClientSN 客户端序列号类型。
 // [:24] 一个随机字节序列，构造序列号的因子之一。
 // [24:] 两个因子计算的Sum384结果的局部（后段）。
 type ClientSN [LenSN]byte
 
+// LenRnd 随机序列长度。
+const LenRnd = 24
+
 // Rnd24 24字节随机序列
-type Rnd24 [24]byte
+type Rnd24 [LenRnd]byte
 
 // Notice 协作通知
 // 用于本地TCP链路向UDP服务器发送协作要求。
@@ -109,8 +104,8 @@ func NewNotice(op UDPSendi, addr *net.UDPAddr, sn ClientSN) *Notice {
 	}
 }
 
-// Client 客户端基本信息
-type Client struct {
+// Node 节点基本信息
+type Node struct {
 	Addr *net.UDPAddr
 	SN   ClientSN
 }
@@ -168,7 +163,7 @@ func GenerateClientSN(seed [32]byte, ip netip.Addr) (ClientSN, Rnd24, error) {
 
 	hash := utilx.HashMAC_ip(buf, ip)
 	rest := Rnd24(hash[:24]) // 前段提取
-	copy(hash[:24], sn24)    // 前端覆盖（明码密钥因子）
+	copy(hash[:24], sn24)    // 前段覆盖（明码密钥因子）
 
 	return ClientSN(hash), rest, nil
 }
@@ -228,13 +223,13 @@ func GenerateSnKey(seed [32]byte, rest Rnd24) [32]byte {
 // @port 本地UDP监听端口
 // @seed 服务器随机数种子
 // @nch 协作通知获取渠道
-// @return 客户端的信息告知通道
-func ListenUDP(ctx context.Context, port int, seed [32]byte, nch <-chan *Notice) <-chan *Client {
+// @return 对端节点的信息告知通道
+func ListenUDP(ctx context.Context, port int, seed [32]byte, nch <-chan *Notice) <-chan *Node {
 	addr := net.UDPAddr{
 		Port: port,
 		IP:   net.ParseIP("0.0.0.0"),
 	}
-	ch := make(chan *Client)
+	ch := make(chan *Node)
 
 	log.Println("STUN service started on", addr.Port)
 
@@ -282,10 +277,10 @@ func ListenUDP(ctx context.Context, port int, seed [32]byte, nch <-chan *Notice)
 					continue
 				}
 				// buf[:24] 为服务器TCP传给客户端的密钥因子
-				key := GenerateSnKey(seed, Rnd24(buf[:24]))
+				key := GenerateSnKey(seed, Rnd24(buf[:LenRnd]))
 
-				// buf[16:] 为序列号的密文
-				sn, err := DecryptSN(buf[16:n], &key)
+				// buf[LenRnd:] 为序列号的密文
+				sn, err := DecryptSN(buf[LenRnd:n], &key)
 				if err != nil {
 					log.Println("Decrypt client's SN data is failed.")
 					continue
@@ -298,7 +293,7 @@ func ListenUDP(ctx context.Context, port int, seed [32]byte, nch <-chan *Notice)
 					log.Println("Verify client's SN failed.")
 					continue
 				}
-				ch <- &Client{Addr: clientAddr, SN: sn}
+				ch <- &Node{Addr: clientAddr, SN: sn}
 			}
 		}
 	}()
@@ -423,14 +418,7 @@ func Resolve(ctx context.Context, paddr *net.UDPAddr, conn *net.UDPConn, sn Clie
 	ch := make(chan NatLevel)
 	chsn := make(chan ClientSN)
 	done := make(chan struct{})
-
-	buf := make([]byte, 32)
-	pleq := equalAddrUDP(paddr, conn.LocalAddr().(*net.UDPAddr))
-
-	// [0] - Listen
-	// [1] - NewPort
-	// [2] - NewHost
-	var udp3x [3]bool
+	buf := make([]byte, LenSN)
 
 	// 持续读取UDP消息进程
 	// 有3项UDP消息需要读取：Listen, NewPort, NewHost
@@ -464,6 +452,12 @@ func Resolve(ctx context.Context, paddr *net.UDPAddr, conn *net.UDPConn, sn Clie
 		}
 	}()
 
+	// [0] - Listen
+	// [1] - NewPort
+	// [2] - NewHost
+	var udp3x [3]bool
+	pleq := equalAddrUDP(paddr, conn.LocalAddr().(*net.UDPAddr))
+
 	// 状态赋值&判断进程
 	go func() {
 		defer close(ch)
@@ -487,7 +481,7 @@ func Resolve(ctx context.Context, paddr *net.UDPAddr, conn *net.UDPConn, sn Clie
 					continue
 				}
 				// 低3位取值
-				switch flag & 0b00000_111 {
+				switch flag & 0b0000_0111 {
 				case bitListen:
 					udp3x[0] = true
 				case bitNewPort:
@@ -495,7 +489,8 @@ func Resolve(ctx context.Context, paddr *net.UDPAddr, conn *net.UDPConn, sn Clie
 				case bitNewHost:
 					udp3x[2] = true
 				}
-				// 特例快速完成：Pub/FullC
+				// Pub/FullC
+				// 3个链路都会收到，快速完成。
 				if udp3x[2] && udp3x[1] && udp3x[0] {
 					return
 				}
@@ -513,10 +508,7 @@ func Resolve(ctx context.Context, paddr *net.UDPAddr, conn *net.UDPConn, sn Clie
 // @paddr1 主服务时获取的客户端公网地址
 // @paddr2 本次副服务时获取的客户端公网地址
 func Resolve2(paddr1, paddr2 *net.UDPAddr) NatLevel {
-	if equalAddrUDP(paddr1, paddr2) {
-		return NAT_LEVEL_PRC
-	}
-	return NAT_LEVEL_SYM
+	return symLevel(paddr1, paddr2)
 }
 
 // LivingTest 客户端NAT映射生命期探测（单次）。
@@ -607,15 +599,7 @@ func LivingTest(ctx context.Context, conn, conn2 *net.UDPConn, raddr *net.UDPAdd
 // 从30秒开始，每次间隔时间增加14秒，即：30s, 44s, 58s, 72s ...
 // 使用：
 // 客户端在原连接上探知了自己的UDP公网地址后，即可开始此流程。
-// 这里初次的探测包会在30秒之后才发送。
-//
-// 服务器端：
-// - 一个专门的端口监听并读取LiveNAT数据。
-// - 如果接收的数据长度大于33字节，这后续部分为加密的地址信息。
-// - 如果接收的数据长度小于等于33字节，则忽视（客户端维持新端口活跃的消息，无需理睬）。
-// - 验证序列号、提取隐藏序列构造密钥解密地址，然后向该地址发送回应包。
-// - 回应包仅需包含原数据前33字节（批次+序列号），加密传送，客户端据此验证回复。
-// - 这是一种通用设计，服务器无需存储和分辨对端。
+// 这里初次的探测包会在30秒之后才发送（waitTime）。
 //
 // @ctx 上下文环境控制（如超时取消）
 // @conn 客户端UDP原监听连接，会同时在此连接上监听回复
@@ -688,10 +672,14 @@ func LivingTime(ctx context.Context, conn, conn2 *net.UDPConn, raddr *net.UDPAdd
 // 作为一个单独的服务存在，服务器仅需根据简单的规则回应即可。
 // 即并不与NAT类型探测（STUN:Cone/Sym）服务合并在一起。
 // 阻塞：外部应当在一个 goroutine 中执行。
-// 使用者：服务器
+// 服务器：
+// - 一个专门的端口监听并读取LiveNAT数据。
+// - 验证序列号、提取隐藏序列构造密钥解密地址，然后向该地址发送回应包。
+// - 回应包仅需包含原数据前49字节（批次+序列号），加密传送，客户端据此验证回复。
+// - 这是一种通用设计，服务器无需存储和分辨对端。
 // @ctx 上下文控制
+// @port 本地监听端口
 // @seed 服务器随机数种子
-// @addr 本地监听地址
 func LiveListen(ctx context.Context, port int, seed [32]byte) {
 	addr := net.UDPAddr{
 		Port: port,
@@ -707,8 +695,8 @@ func LiveListen(ctx context.Context, port int, seed [32]byte) {
 	log.Println("NAT lifetime detection service started on", addr.Port)
 
 	// Rnd (批次+序列号+port) + 加密pad
-	// 24 + (1 + 32 + 2) + 28 = 87
-	buf := make([]byte, 100)
+	// 24 + (1 + 48 + 2) + 28 = 103
+	buf := make([]byte, 103)
 
 	for {
 		select {
@@ -718,6 +706,10 @@ func LiveListen(ctx context.Context, port int, seed [32]byte) {
 			n, clientAddr, err := conn.ReadFromUDP(buf)
 			if err != nil {
 				log.Println("[Error] reading from UDP:", err)
+				continue
+			}
+			if n <= LenSN+1 {
+				// 忽略小于等于49字节的消息（客户端维持新端口活跃的消息）
 				continue
 			}
 			// 前段24字节为密钥因子。
@@ -741,6 +733,107 @@ func LiveListen(ctx context.Context, port int, seed [32]byte) {
 			go liveResponseUDP(conn, NewUDPAddr(conn.RemoteAddr(), port), cnt, sn)
 		}
 	}
+}
+
+//
+// 辅助工具
+//////////////////////////////////////////////////////////////////////////////
+//
+
+// RelatePeer 创建UDP关联节点。
+// 这只是一个便捷封装。
+// @paddr 客户端公网地址（UDP）
+// @nat   NAT类型
+// @data  额外数据（可选）
+func RelatePeer(paddr *net.UDPAddr, nat NatLevel, data []byte) *Peer {
+	ipp := paddr.AddrPort()
+
+	return &Peer{
+		IP:    ipp.Addr(),
+		Port:  int(ipp.Port()),
+		Level: nat,
+		Extra: data, // 额外数据
+	}
+}
+
+// AddrPort 解析通用地址内的IP和端口
+// 如果实参包含的是 IPAddr，端口号返回-1。
+// 其它类型地址会导致恐慌。
+// @addr 网络地址（非UnixAddr）
+// @return1 IP地址
+// @return2 端口
+func AddrPort(addr net.Addr) (netip.Addr, int) {
+	var ap netip.AddrPort
+
+	switch x := addr.(type) {
+	case *net.TCPAddr:
+		ap = x.AddrPort()
+	case *net.UDPAddr:
+		ap = x.AddrPort()
+	case *net.IPAddr:
+		ip, _ := netip.AddrFromSlice(x.IP)
+		return ip, -1
+	default:
+		panic("Bad net.Addr format.")
+	}
+	return ap.Addr(), int(ap.Port())
+}
+
+// NewUDPAddr 创建一个新UDP地址。
+// 仅取实参地址的IP，用一个新的端口号构建。
+// @addr 网络地址（非UnixAddr）
+// @port 新的端口号
+// @return 一个新的UDP地址
+func NewUDPAddr(addr net.Addr, port int) *net.UDPAddr {
+	ip, _ := AddrPort(addr)
+
+	return &net.UDPAddr{
+		IP:   ip.AsSlice(),
+		Port: port,
+	}
+}
+
+// EncryptLive 加密Live发送的数据（STUN:Live UDP）
+// 直接采用 protobuf 编码的结果数据。
+// @cnt 批次计数（0-255）
+// @sn 客户端序列号（SN）
+// @port 本地UDP端口（服务器发送的目标）
+// @key 对称加密/解密密钥
+// @return 加密后的数据
+func EncryptLive(cnt byte, sn ClientSN, port int, key *[32]byte) ([]byte, error) {
+	data, err := EncodeLiveNAT(cnt, sn, port)
+	if err != nil {
+		return nil, err
+	}
+	return utilx.Encrypt(data, key)
+}
+
+// DecryptLive 解密Live发送的数据（STUN:Live UDP）
+// 先解密，再解码。
+func DecryptLive(data []byte, key *[32]byte) (byte, ClientSN, int, error) {
+	data, err := utilx.Decrypt(data, key)
+	if err != nil {
+		return 0, ClientSN{}, 0, err
+	}
+	return DecodeLiveNAT(data)
+}
+
+// EncryptSN 加密序列号
+// 用于客户端向服务器回送UDP信息以发现自己的公网地址。
+// 使用者：客户端
+func EncryptSN(sn ClientSN, key *[32]byte) ([]byte, error) {
+	return utilx.Encrypt(sn[:], key)
+}
+
+// DecryptSN 解密序列号
+// 由服务器读取、解密和验证，并获取客户端的公网地址。
+// 使用者：服务器
+func DecryptSN(data []byte, key *[32]byte) (ClientSN, error) {
+	sn48, err := utilx.Decrypt(data, key)
+	if err != nil {
+		return ClientSN{}, err
+	}
+	return ClientSN(sn48), nil
 }
 
 //
@@ -792,6 +885,15 @@ func coneLevel(paddr *net.UDPAddr, eq bool, u3x [3]bool) NatLevel {
 		return NAT_LEVEL_RC
 	}
 	return NAT_LEVEL_PRCSYM // P-RC | Sym
+}
+
+// 二级判断NAT类型（STUN:Sym）。
+// 解决 STUN:Cone 主服务后未能判断 P-RC/Sym 的情况。
+func symLevel(paddr1, paddr2 *net.UDPAddr) NatLevel {
+	if equalAddrUDP(paddr1, paddr2) {
+		return NAT_LEVEL_PRC
+	}
+	return NAT_LEVEL_SYM
 }
 
 // 冗余发送UDP数据报（短间隔连续）。
@@ -908,81 +1010,4 @@ func readFromUDP(conn *net.UDPConn, long time.Duration, size int) <-chan []byte 
 		ch <- buf[:n]
 	}()
 	return ch
-}
-
-//
-// 辅助工具
-//////////////////////////////////////////////////////////////////////////////
-//
-
-// AddrPort 解析通用地址内的IP和端口
-// 如果实参包含的是 IPAddr，端口号返回-1。
-// 其它类型地址会导致恐慌。
-// @addr 网络地址（非UnixAddr）
-// @return1 IP地址
-// @return2 端口
-func AddrPort(addr net.Addr) (netip.Addr, int) {
-	var ap netip.AddrPort
-
-	switch x := addr.(type) {
-	case *net.TCPAddr:
-		ap = x.AddrPort()
-	case *net.UDPAddr:
-		ap = x.AddrPort()
-	case *net.IPAddr:
-		ip, _ := netip.AddrFromSlice(x.IP)
-		return ip, -1
-	default:
-		panic("Bad net.Addr format.")
-	}
-	return ap.Addr(), int(ap.Port())
-}
-
-// NewUDPAddr 创建一个新UDP地址。
-// 仅取实参地址的IP，用一个新的端口号构建。
-func NewUDPAddr(addr net.Addr, port int) *net.UDPAddr {
-	ip, _ := AddrPort(addr)
-
-	return &net.UDPAddr{
-		IP:   ip.AsSlice(),
-		Port: port,
-	}
-}
-
-// EncryptLive 加密Live发送的数据（STUN:Live UDP）
-// 直接采用 protobuf 编码的结果数据。
-func EncryptLive(cnt byte, sn ClientSN, port int, key *[32]byte) ([]byte, error) {
-	data, err := EncodeLiveNAT(cnt, sn, port)
-	if err != nil {
-		return nil, err
-	}
-	return utilx.Encrypt(data, key)
-}
-
-// DecryptLive 解密Live发送的数据（STUN:Live UDP）
-// 先解密，再解码。
-func DecryptLive(data []byte, key *[32]byte) (byte, ClientSN, int, error) {
-	data, err := utilx.Decrypt(data, key)
-	if err != nil {
-		return 0, ClientSN{}, 0, err
-	}
-	return DecodeLiveNAT(data)
-}
-
-// EncryptSN 加密序列号
-// 用于客户端向服务器回送UDP信息以发现自己的公网地址。
-// 使用者：客户端
-func EncryptSN(sn ClientSN, key *[32]byte) ([]byte, error) {
-	return utilx.Encrypt(sn[:], key)
-}
-
-// DecryptSN 解密序列号
-// 由服务器读取、解密和验证，并获取客户端的公网地址。
-// 使用者：服务器
-func DecryptSN(data []byte, key *[32]byte) (ClientSN, error) {
-	sn32, err := utilx.Decrypt(data, key)
-	if err != nil {
-		return ClientSN{}, err
-	}
-	return ClientSN(sn32), nil
 }
