@@ -1,16 +1,18 @@
 {
     user_id: "thanks" ,     // 身份ID（非群组成员时任意）
-    log_dir: "",            // 日志存放目录（全路径），默认应用程序缓存目录。可选
-    server_port: 7788,      // 本地服务端口
-    remote_port: 7788,      // 远端端口。可改为443用于混入服务器探测
-    shortlist: 40,          // 候选池大小（节点数）
-    applications: 500,      // 应用池大小（每种应用可同时连接的节点数）
+    log_root: "",           // 日志根目录，默认采用系统缓存目录
+    server_uport: 7788,     // 本地服务端口（UDP）
+    server_tport: 443 ,     // 本地服务端口（TCP，混入方式）
+    remote_uport: 7788,     // 远端端口（UDP），用于暴力发现
+    remote_tport: 443 ,     // 远端端口（TCP），用于暴力发现
+    shortlist: 100,         // 候选池大小（节点数）
+    punch_xpool: 500,       // 应用池大小（每种应用可同时连接的节点数）
+    share_xpool: 1000,      // TCP服务器分享池大小（按应用分组）
     peers_help: 10,         // 上线协助发送条目数
-    stun_peer_amount: 6,    // 打洞协助关联节点数
+    peers_punch: 5,         // 打洞协助的最大节点数（一个请求）
     peers_range: 200,       // 节点寻找的范围（基于起点的半径）
-    buffer_size: 1024,      // 连接读写缓冲区大小
-    stun_living: true,      // 是否启动 STUN:Live 服务（作为服务器）
-    udp_listen: 7080,       // 本地 NAT 类型探测监听端口
-    udp_living: 7181,       // 本地 NAT 生命期探测监听端口
-    stun_client: true,      // 是否需要NAT层级&生存期探测
+    stun_on: true,          // 是否开启NAT探测服务（类型&存活期）
+    nat_type: 7080,         // 本地 NAT 类型探测监听端口
+    nat_living: 7081,       // 本地 NAT 存活期探测监听端口
+    client_only: false,     // 仅以客户端身份运行（私有部署，无服务）
 }

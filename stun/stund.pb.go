@@ -4,7 +4,7 @@
 // 	protoc        v5.29.3
 // source: stund.proto
 
-package stun
+package __
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -21,38 +21,30 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// 打洞信息包
-// 由服务器传递给请求UDP打洞的两个应用端节点。
-// 也用于应用客户端向服务器递送自身的UDP节点信息。
-// 方向（dir）：
-// - master 主动打洞方，创建监听等待连入（server）。
-// - slave 从动方，直接拨号连入（client）。
-// - "" 客户端向服务器报送自己的用于打洞的UDP信息。
-type Punchx struct {
+// PUAddr 节点UDP地址
+// 服务器在 STUN:Cone 响应中向客户端告知其公网地址。
+type PUAddr struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Dir           string                 `protobuf:"bytes,1,opt,name=dir,proto3" json:"dir,omitempty"`      // 打洞方向（master|slave|""）
-	Ip            []byte                 `protobuf:"bytes,2,opt,name=ip,proto3" json:"ip,omitempty"`        // 公网 IP
-	Port          int32                  `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`   // 公网端口（监听|通讯）
-	Level         int32                  `protobuf:"varint,5,opt,name=level,proto3" json:"level,omitempty"` // NAT 层级（0: Pub/FullC; 1: RC; 2: P-RC; 3: Sym）
-	Token         []byte                 `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"`  // 验证标识（对端原样回传）
+	Ip            []byte                 `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`      // 公网IP
+	Port          int32                  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"` // 公网端口（NAT映射）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *Punchx) Reset() {
-	*x = Punchx{}
+func (x *PUAddr) Reset() {
+	*x = PUAddr{}
 	mi := &file_stund_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Punchx) String() string {
+func (x *PUAddr) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Punchx) ProtoMessage() {}
+func (*PUAddr) ProtoMessage() {}
 
-func (x *Punchx) ProtoReflect() protoreflect.Message {
+func (x *PUAddr) ProtoReflect() protoreflect.Message {
 	mi := &file_stund_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -64,75 +56,50 @@ func (x *Punchx) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Punchx.ProtoReflect.Descriptor instead.
-func (*Punchx) Descriptor() ([]byte, []int) {
+// Deprecated: Use PUAddr.ProtoReflect.Descriptor instead.
+func (*PUAddr) Descriptor() ([]byte, []int) {
 	return file_stund_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *Punchx) GetDir() string {
-	if x != nil {
-		return x.Dir
-	}
-	return ""
-}
-
-func (x *Punchx) GetIp() []byte {
+func (x *PUAddr) GetIp() []byte {
 	if x != nil {
 		return x.Ip
 	}
 	return nil
 }
 
-func (x *Punchx) GetPort() int32 {
+func (x *PUAddr) GetPort() int32 {
 	if x != nil {
 		return x.Port
 	}
 	return 0
 }
 
-func (x *Punchx) GetLevel() int32 {
-	if x != nil {
-		return x.Level
-	}
-	return 0
-}
-
-func (x *Punchx) GetToken() []byte {
-	if x != nil {
-		return x.Token
-	}
-	return nil
-}
-
-// 服务器信息包
-// 服务器接收到客户端的请求后，向客户端返回的信息。
-// 可用于 STUN:Cone, STUN:Sym, STUN:Live 全部三个服务。
-// 约束：
-// UDP:IP地址与TCP链路相同，因此这里只需端口信息。
-type ServInfo struct {
+// 打洞信息包
+// 由服务器发送给打洞双方的对端信息。
+type Punch2 struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Port          int32                  `protobuf:"varint,1,opt,name=port,proto3" json:"port,omitempty"`  // UDP 服务器端口
-	Sn48          []byte                 `protobuf:"bytes,2,opt,name=sn48,proto3" json:"sn48,omitempty"`   // 随机序列号（48 bytes）
-	Skey          []byte                 `protobuf:"bytes,3,opt,name=skey,proto3" json:"skey,omitempty"`   // 对称加密密钥
-	Token         []byte                 `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"` // 密钥因子（需原样回传）
+	To            *PUAddr                `protobuf:"bytes,1,opt,name=to,proto3" json:"to,omitempty"`       // 目标节点地址
+	Token         []byte                 `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"` // 会话标识符（需原样回传）
+	Natt          int32                  `protobuf:"varint,3,opt,name=natt,proto3" json:"natt,omitempty"`  // NAT 类型，可选
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ServInfo) Reset() {
-	*x = ServInfo{}
+func (x *Punch2) Reset() {
+	*x = Punch2{}
 	mi := &file_stund_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ServInfo) String() string {
+func (x *Punch2) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ServInfo) ProtoMessage() {}
+func (*Punch2) ProtoMessage() {}
 
-func (x *ServInfo) ProtoReflect() protoreflect.Message {
+func (x *Punch2) ProtoReflect() protoreflect.Message {
 	mi := &file_stund_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -144,46 +111,43 @@ func (x *ServInfo) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ServInfo.ProtoReflect.Descriptor instead.
-func (*ServInfo) Descriptor() ([]byte, []int) {
+// Deprecated: Use Punch2.ProtoReflect.Descriptor instead.
+func (*Punch2) Descriptor() ([]byte, []int) {
 	return file_stund_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *ServInfo) GetPort() int32 {
+func (x *Punch2) GetTo() *PUAddr {
 	if x != nil {
-		return x.Port
-	}
-	return 0
-}
-
-func (x *ServInfo) GetSn48() []byte {
-	if x != nil {
-		return x.Sn48
+		return x.To
 	}
 	return nil
 }
 
-func (x *ServInfo) GetSkey() []byte {
-	if x != nil {
-		return x.Skey
-	}
-	return nil
-}
-
-func (x *ServInfo) GetToken() []byte {
+func (x *Punch2) GetToken() []byte {
 	if x != nil {
 		return x.Token
 	}
 	return nil
 }
 
-// LiveNAT 消息包
-// 包含客户端提供的目标UDP地址和序列号。
-// 序列号之前会前置一个批次字节，以方便客户端辨别发送的时间段。
+func (x *Punch2) GetNatt() int32 {
+	if x != nil {
+		return x.Natt
+	}
+	return 0
+}
+
+// LiveNAT 信息包
+// 客户端向 STUN:Live 服务器提供的信息。
+// sn9:
+// 首字节计量消息包批次，但仅使用低7位（高1位保留）。
+// 最高位表达 NewPort|NewHost 的区别，由服务器设置：
+// > 0 - NewPort
+// > 1 - NewHost
 type LiveNAT struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Sn49          []byte                 `protobuf:"bytes,1,opt,name=sn49,proto3" json:"sn49,omitempty"`  // 批次+序列号（1+48字节）
-	Port          int32                  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"` // 公网端口
+	Sn9           []byte                 `protobuf:"bytes,1,opt,name=sn9,proto3" json:"sn9,omitempty"`    // 批次+序列号（1+8字节）
+	Port          int32                  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"` // 端口（NAT 公网映射）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -218,9 +182,9 @@ func (*LiveNAT) Descriptor() ([]byte, []int) {
 	return file_stund_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *LiveNAT) GetSn49() []byte {
+func (x *LiveNAT) GetSn9() []byte {
 	if x != nil {
-		return x.Sn49
+		return x.Sn9
 	}
 	return nil
 }
@@ -232,31 +196,32 @@ func (x *LiveNAT) GetPort() int32 {
 	return 0
 }
 
-// Hosto NewHost协助消息
-// 记载客户端UDP信息，在TCP链路上请求对端协助。
-type Hosto struct {
+// Hostto NewHost协助消息
+// 服务器转送客户端 UDP 信息，由另一台服务器尝试发送。
+// 注：sn9[7] 高位已置位。
+type Hostto struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Ip            []byte                 `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`      // 公网IP
 	Port          int32                  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"` // 端口
-	Sn48          []byte                 `protobuf:"bytes,3,opt,name=sn48,proto3" json:"sn48,omitempty"`  // 序列号（48字节）
+	Sn9           []byte                 `protobuf:"bytes,3,opt,name=sn9,proto3" json:"sn9,omitempty"`    // 批次+序列号（同 LiveNAT.sn9）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *Hosto) Reset() {
-	*x = Hosto{}
+func (x *Hostto) Reset() {
+	*x = Hostto{}
 	mi := &file_stund_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Hosto) String() string {
+func (x *Hostto) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Hosto) ProtoMessage() {}
+func (*Hostto) ProtoMessage() {}
 
-func (x *Hosto) ProtoReflect() protoreflect.Message {
+func (x *Hostto) ProtoReflect() protoreflect.Message {
 	mi := &file_stund_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -268,56 +233,66 @@ func (x *Hosto) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Hosto.ProtoReflect.Descriptor instead.
-func (*Hosto) Descriptor() ([]byte, []int) {
+// Deprecated: Use Hostto.ProtoReflect.Descriptor instead.
+func (*Hostto) Descriptor() ([]byte, []int) {
 	return file_stund_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *Hosto) GetIp() []byte {
+func (x *Hostto) GetIp() []byte {
 	if x != nil {
 		return x.Ip
 	}
 	return nil
 }
 
-func (x *Hosto) GetPort() int32 {
+func (x *Hostto) GetPort() int32 {
 	if x != nil {
 		return x.Port
 	}
 	return 0
 }
 
-func (x *Hosto) GetSn48() []byte {
+func (x *Hostto) GetSn9() []byte {
 	if x != nil {
-		return x.Sn48
+		return x.Sn9
 	}
 	return nil
 }
 
-// UDPInfo 客户端UDP信息
-// 服务器在 STUN:Cone|Sym 中向客户端告知其UDP状况。
-type UDPInfo struct {
+// Punchx 定向打洞信息
+// 如果未指定目标（to），表示当前节点（client）为登记。
+// 登记时 delay 和 count 有效。
+// delay:
+// 希望服务器暂存的时长（秒数）。
+// - 正值表示具体的秒数。
+// - 零值表示采用服务器内置默认值（30分钟）。
+// count:
+// 可接受打洞（配合）的次数。
+// 与 delay 同时计算有效性，任一抵达即失效。
+type Punchx struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Ip            []byte                 `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`      // UDP 公网IP
-	Port          int32                  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"` // UDP 公网端口
+	To            *PUAddr                `protobuf:"bytes,1,opt,name=to,proto3" json:"to,omitempty"`         // 目标节点地址，可选
+	Client        *Punch2                `protobuf:"bytes,2,opt,name=client,proto3" json:"client,omitempty"` // 客户端自身的信息
+	Delay         int32                  `protobuf:"varint,3,opt,name=delay,proto3" json:"delay,omitempty"`  // 登记暂存时长（秒数），可选
+	Count         int32                  `protobuf:"varint,4,opt,name=count,proto3" json:"count,omitempty"`  // 可接受打洞的次数，可选
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *UDPInfo) Reset() {
-	*x = UDPInfo{}
+func (x *Punchx) Reset() {
+	*x = Punchx{}
 	mi := &file_stund_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *UDPInfo) String() string {
+func (x *Punchx) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*UDPInfo) ProtoMessage() {}
+func (*Punchx) ProtoMessage() {}
 
-func (x *UDPInfo) ProtoReflect() protoreflect.Message {
+func (x *Punchx) ProtoReflect() protoreflect.Message {
 	mi := &file_stund_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -329,86 +304,35 @@ func (x *UDPInfo) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use UDPInfo.ProtoReflect.Descriptor instead.
-func (*UDPInfo) Descriptor() ([]byte, []int) {
+// Deprecated: Use Punchx.ProtoReflect.Descriptor instead.
+func (*Punchx) Descriptor() ([]byte, []int) {
 	return file_stund_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *UDPInfo) GetIp() []byte {
+func (x *Punchx) GetTo() *PUAddr {
 	if x != nil {
-		return x.Ip
+		return x.To
 	}
 	return nil
 }
 
-func (x *UDPInfo) GetPort() int32 {
-	if x != nil {
-		return x.Port
-	}
-	return 0
-}
-
-// PunchOne 定向打洞信息
-// 如果未指定目标，表示当前节点为登记。
-// 登记时 expire 字段有效，最大值为30分钟（30*60秒），
-// - 负值表示遵照服务器内置默认值（30分钟）。
-// - 零值表示立即过期（但可使用一次）。
-type PunchOne struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Client        *Punchx                `protobuf:"bytes,1,opt,name=client,proto3" json:"client,omitempty"`  // 客户端自身的信息
-	Target        *UDPInfo               `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`  // 目标节点的UDP信息
-	Expire        int32                  `protobuf:"varint,3,opt,name=expire,proto3" json:"expire,omitempty"` // 登记暂存时长（秒数）
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *PunchOne) Reset() {
-	*x = PunchOne{}
-	mi := &file_stund_proto_msgTypes[5]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *PunchOne) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*PunchOne) ProtoMessage() {}
-
-func (x *PunchOne) ProtoReflect() protoreflect.Message {
-	mi := &file_stund_proto_msgTypes[5]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use PunchOne.ProtoReflect.Descriptor instead.
-func (*PunchOne) Descriptor() ([]byte, []int) {
-	return file_stund_proto_rawDescGZIP(), []int{5}
-}
-
-func (x *PunchOne) GetClient() *Punchx {
+func (x *Punchx) GetClient() *Punch2 {
 	if x != nil {
 		return x.Client
 	}
 	return nil
 }
 
-func (x *PunchOne) GetTarget() *UDPInfo {
+func (x *Punchx) GetDelay() int32 {
 	if x != nil {
-		return x.Target
+		return x.Delay
 	}
-	return nil
+	return 0
 }
 
-func (x *PunchOne) GetExpire() int32 {
+func (x *Punchx) GetCount() int32 {
 	if x != nil {
-		return x.Expire
+		return x.Count
 	}
 	return 0
 }
@@ -417,32 +341,26 @@ var File_stund_proto protoreflect.FileDescriptor
 
 const file_stund_proto_rawDesc = "" +
 	"\n" +
-	"\vstund.proto\"j\n" +
-	"\x06Punchx\x12\x10\n" +
-	"\x03dir\x18\x01 \x01(\tR\x03dir\x12\x0e\n" +
-	"\x02ip\x18\x02 \x01(\fR\x02ip\x12\x12\n" +
-	"\x04port\x18\x03 \x01(\x05R\x04port\x12\x14\n" +
-	"\x05level\x18\x05 \x01(\x05R\x05level\x12\x14\n" +
-	"\x05token\x18\x04 \x01(\fR\x05token\"\\\n" +
-	"\bServInfo\x12\x12\n" +
-	"\x04port\x18\x01 \x01(\x05R\x04port\x12\x12\n" +
-	"\x04sn48\x18\x02 \x01(\fR\x04sn48\x12\x12\n" +
-	"\x04skey\x18\x03 \x01(\fR\x04skey\x12\x14\n" +
-	"\x05token\x18\x04 \x01(\fR\x05token\"1\n" +
-	"\aLiveNAT\x12\x12\n" +
-	"\x04sn49\x18\x01 \x01(\fR\x04sn49\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\"?\n" +
-	"\x05Hosto\x12\x0e\n" +
+	"\vstund.proto\",\n" +
+	"\x06PUAddr\x12\x0e\n" +
 	"\x02ip\x18\x01 \x01(\fR\x02ip\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x12\n" +
-	"\x04sn48\x18\x03 \x01(\fR\x04sn48\"-\n" +
-	"\aUDPInfo\x12\x0e\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\"K\n" +
+	"\x06Punch2\x12\x17\n" +
+	"\x02to\x18\x01 \x01(\v2\a.PUAddrR\x02to\x12\x14\n" +
+	"\x05token\x18\x02 \x01(\fR\x05token\x12\x12\n" +
+	"\x04natt\x18\x03 \x01(\x05R\x04natt\"/\n" +
+	"\aLiveNAT\x12\x10\n" +
+	"\x03sn9\x18\x01 \x01(\fR\x03sn9\x12\x12\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\">\n" +
+	"\x06Hostto\x12\x0e\n" +
 	"\x02ip\x18\x01 \x01(\fR\x02ip\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\"e\n" +
-	"\bPunchOne\x12\x1f\n" +
-	"\x06client\x18\x01 \x01(\v2\a.PunchxR\x06client\x12 \n" +
-	"\x06target\x18\x02 \x01(\v2\b.UDPInfoR\x06target\x12\x16\n" +
-	"\x06expire\x18\x03 \x01(\x05R\x06expireB\tZ\a../stunb\x06proto3"
+	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x10\n" +
+	"\x03sn9\x18\x03 \x01(\fR\x03sn9\"n\n" +
+	"\x06Punchx\x12\x17\n" +
+	"\x02to\x18\x01 \x01(\v2\a.PUAddrR\x02to\x12\x1f\n" +
+	"\x06client\x18\x02 \x01(\v2\a.Punch2R\x06client\x12\x14\n" +
+	"\x05delay\x18\x03 \x01(\x05R\x05delay\x12\x14\n" +
+	"\x05count\x18\x04 \x01(\x05R\x05countB\x03Z\x01.b\x06proto3"
 
 var (
 	file_stund_proto_rawDescOnce sync.Once
@@ -456,23 +374,23 @@ func file_stund_proto_rawDescGZIP() []byte {
 	return file_stund_proto_rawDescData
 }
 
-var file_stund_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_stund_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_stund_proto_goTypes = []any{
-	(*Punchx)(nil),   // 0: Punchx
-	(*ServInfo)(nil), // 1: ServInfo
-	(*LiveNAT)(nil),  // 2: LiveNAT
-	(*Hosto)(nil),    // 3: Hosto
-	(*UDPInfo)(nil),  // 4: UDPInfo
-	(*PunchOne)(nil), // 5: PunchOne
+	(*PUAddr)(nil),  // 0: PUAddr
+	(*Punch2)(nil),  // 1: Punch2
+	(*LiveNAT)(nil), // 2: LiveNAT
+	(*Hostto)(nil),  // 3: Hostto
+	(*Punchx)(nil),  // 4: Punchx
 }
 var file_stund_proto_depIdxs = []int32{
-	0, // 0: PunchOne.client:type_name -> Punchx
-	4, // 1: PunchOne.target:type_name -> UDPInfo
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	0, // 0: Punch2.to:type_name -> PUAddr
+	0, // 1: Punchx.to:type_name -> PUAddr
+	1, // 2: Punchx.client:type_name -> Punch2
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_stund_proto_init() }
@@ -486,7 +404,7 @@ func file_stund_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_stund_proto_rawDesc), len(file_stund_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

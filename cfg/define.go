@@ -1,4 +1,4 @@
-// Copyright 2024 of chainx.zh@gmail.com, All rights reserved.
+// Copyright 2025 of chainx.zh@gmail.com, All rights reserved.
 // Use of this source code is governed by a MIT license.
 // ---------------------------------------------------------------------------
 // 基础配置集
@@ -9,11 +9,9 @@
 // 禁闭节点
 // --------
 // 程序运行过程中，不友好节点会被临时禁闭排除。
-// 用户也可以配置一个节点清单。
-// 禁闭配置文件（bans.json）在应用程序系统缓存目录下，如果不存在可手工创建。
-// 内容为简单的地址（IP:Port）清单。
+// 用户可以手动设置一个节点清单，内容为简单的地址（IP:Port）列表。
 //
-// @2024.11.23 cxio
+// @2025.09.16 cxio
 ///////////////////////////////////////////////////////////////////////////////
 //
 
@@ -27,19 +25,24 @@ import (
 
 // 外部配置默认值。
 const (
-	UserID         = ""   // 本节点的身份ID（群组时用）
-	ServerPort     = 7788 // 默认服务端口（TCP）
-	RemotePort     = 7788 // 远端目标端口（TCP）
-	ListFindings   = 40   // 本类节点候选名单长度
-	MaxApps        = 500  // 每种应用默认的节点连接数上限
-	PeersHelp      = 10   // 上线协助发送条目数
-	STUNPeerAmount = 6    // 打洞协助连系的节点数
-	PeerFindRange  = 200  // 节点寻找的范围（基于起点）
-	BufferSize     = 1024 // 连接读写缓冲区大小
-	STUNLiving     = true // 是否启动 STUN:Live 服务（NAT生命期探测）
-	UDPListen      = 7080 // 本地 NAT 类型探测监听端口
-	UDPLiving      = 7181 // 本地 NAT 生命期探测监听端口
-	STUNClient     = true // 是否需要NAT层级&生存期探测
+	UserID      = ""   // 本节点的身份ID（群组时用）
+	LogRoot     = ""   // 空值表示使用系统缓存目录
+	ServerUport = 7788 // 默认服务端口（UDP）
+	ServerTport = 443  // 默认服务端口（TCP，混入方式）
+	RemoteUport = 7788 // 远端目标端口（UDP）
+	RemoteTport = 443  // 远端目标端口（TCP）
+	Shortlist   = 100  // 候选名单长度
+	PunchXpool  = 500  // 应用池大小
+	ShareXpool  = 1000 // TCP服务器分享池大小
+	PeersHelp   = 10   // 上线帮助发送条目数
+	PeersPunch  = 5    // 打洞协助连接节点数
+	PeersRange  = 200  // 基于起点，节点寻找的范围
+
+	// NAT探测相关
+	STUNTest   = true // 是否启动全局 UDP:STUN 探测服务
+	NATListen  = 7080 // 本地 NAT 类型探测监听端口
+	NATLiving  = 7081 // 本地 NAT 生命期探测监听端口
+	ClientOnly = true // 是否需要NAT层级&生存期探测
 )
 
 // 开发配置常量
@@ -49,6 +52,7 @@ const (
 	SomeFindings    = 10                // 组网分享发送条目数
 	AppServerTCP    = 6                 // 应用端请求TCP服务器节点数量
 	STUNTryMax      = 4                 // 打洞协助单次失败再尝试最大次数
+	BufferSize      = 4096              // 连接读写缓冲区大小
 	FinderPatrol    = time.Minute * 10  // 本类节点连接切换巡查间隔
 	ShortlistPatrol = time.Minute * 6   // 候选池节点在线巡查间隔
 	BanExpired      = time.Hour * 4     // 恶意节点禁闭期限
@@ -76,7 +80,7 @@ const (
 
 // 日志文件名
 const (
-	LogDir       = "logs"         // 日志根目录（系统缓存根下）
+	LogDir       = "logs"         // 日志根目录（相对于系统缓存根目录）
 	LogFile      = "findings.log" // 主程序日志
 	LogPeerFile  = "peers.log"    // 有效连接节点历史
 	LogDebugFile = "debug.log"    // 调试日志
@@ -103,18 +107,20 @@ func (p *Peer) String() string {
 // RemotePort 用于新节点初始上线时的暴力发现，
 // 仅在App内置节点已不可用，且也没有其它可连接的节点配置时才需要。
 type Config struct {
-	UserID         string `json:"user_id,omitempty"`          // 本节点的身份ID（群组时用）
-	LogDir         string `json:"log_dir,omitempty"`          // 日志根目录
-	ServerPort     int    `json:"server_port,omitempty"`      // 本地服务端口
-	RemotePort     int    `json:"remote_port,omitempty"`      // 远端节点服务端口（7788|443|0|...）
-	Shortlist      int    `json:"shortlist,omitempty"`        // 候选池大小
-	ConnApps       int    `json:"applications,omitempty"`     // 应用池大小
-	PeersHelp      int    `json:"peers_help,omitempty"`       // 上线帮助发送条目数
-	STUNPeerAmount int    `json:"stun_peer_amount,omitempty"` // 打洞协助连接节点数
-	PeerFindRange  int    `json:"peers_range,omitempty"`      // 基于起点，节点寻找的范围
-	BufferSize     int    `json:"buffer_size,omitempty"`      // 连接读写缓冲区大小
-	STUNLiving     bool   `json:"stun_living,omitempty"`      // 是否启动全局 UDP:STUN 服务
-	UDPListen      int    `json:"udp_listen,omitempty"`       // 本地 NAT 类型探测监听端口
-	UDPLiving      int    `json:"udp_living,omitempty"`       // 本地 NAT 生命期探测监听端口
-	STUNClient     bool   `json:"stun_client,omitempty"`      // 是否需要NAT层级&生存期探测
+	UserID      string `json:"user_id,omitempty"`      // 本节点的身份ID（群组时用）
+	LogRoot     string `json:"log_root,omitempty"`     // 日志根目录
+	ServerUport uint16 `json:"server_uport,omitempty"` // 服务端口（UDP）
+	ServerTport uint16 `json:"server_tport,omitempty"` // 服务端口（TCP，混入方式）
+	RemoteUport uint16 `json:"remote_uport,omitempty"` // 远端目标端口（UDP）
+	RemoteTport uint16 `json:"remote_tport,omitempty"` // 远端目标端口（TCP）
+	Shortlist   int    `json:"shortlist,omitempty"`    // 候选名单长度
+	PunchXpool  int    `json:"punch_xpool,omitempty"`  // 应用池大小
+	ShareXpool  int    `json:"share_xpool,omitempty"`  // TCP服务器分享池大小
+	PeersHelp   int    `json:"peers_help,omitempty"`   // 上线帮助发送条目数
+	PeersPunch  int    `json:"peers_punch,omitempty"`  // 打洞协助连接节点数
+	PeersRange  int    `json:"peers_range,omitempty"`  // 基于起点，节点寻找的范围
+	STUNTest    bool   `json:"stun_on,omitempty"`      // 是否启动全局 UDP:STUN 探测服务
+	NATListen   int    `json:"nat_type,omitempty"`     // 本地 NAT 类型探测监听端口
+	NATLiving   int    `json:"nat_living,omitempty"`   // 本地 NAT 生命期探测监听端口
+	ClientOnly  bool   `json:"client_only,omitempty"`  // 是否需要NAT层级&生存期探测
 }

@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+// PUAddr 节点UDP地址
+// 服务器在 STUN:Cone 响应中向客户端告知其公网地址。
+message PUAddr {
+    bytes ip = 1;       // 公网IP
+    int32 port = 2;     // 公网端口（NAT映射）
+}
+
+// 打洞信息包
+// 由服务器发送给打洞双方的对端信息。
+message Punch2 {
+    PUAddr to = 1;      // 目标节点地址
+    bytes token = 2;    // 会话标识符（需原样回传）
+    int32 natt = 3;     // NAT 类型，可选
+}
+
+// LiveNAT 信息包
+// 客户端向 STUN:Live 服务器提供的信息。
+// sn9:
+// 首字节计量消息包批次，但仅使用低7位（高1位保留）。
+// 最高位表达 NewPort|NewHost 的区别，由服务器设置：
+// > 0 - NewPort
+// > 1 - NewHost
+message LiveNAT {
+    bytes sn9 = 1;      // 批次+序列号（1+8字节）
+    int32 port = 2;     // 端口（NAT 公网映射）
+}
+
+// Hostto NewHost协助消息
+// 服务器转送客户端 UDP 信息，由另一台服务器尝试发送。
+// 注：sn9[7] 高位已置位。
+message Hostto {
+    bytes ip = 1;       // 公网IP
+    int32 port = 2;     // 端口
+    bytes sn9 = 3;      // 批次+序列号（同 LiveNAT.sn9）
+}
+
+// Punchx 定向打洞信息
+// 如果未指定目标（to），表示当前节点（client）为登记。
+// 登记时 delay 和 count 有效。
+// delay:
+// 希望服务器暂存的时长（秒数）。
+// - 正值表示具体的秒数。
+// - 零值表示采用服务器内置默认值（30分钟）。
+// count:
+// 可接受打洞（配合）的次数。
+// 与 delay 同时计算有效性，任一抵达即失效。
+message Punchx {
+    PUAddr to = 1;      // 目标节点地址，可选
+    Punch2 client = 2;  // 客户端自身的信息
+    int32 delay = 3;    // 登记暂存时长（秒数），可选
+    int32 count = 4;    // 可接受打洞的次数，可选
+}
+
+option go_package = "../stun";

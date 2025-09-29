@@ -75,20 +75,29 @@ func (x *Proto) GetData() []byte {
 	return nil
 }
 
-// 节点声明类别
+// Kind 节点声明类别
 // 如果节点仅需NAT探测而无需打洞服务，name可以任意设置，但base需合法。
-// 因为NAT探测是标准内置服务，无需类型区分。
-// seek: 寻求的服务，仅在客户端向服务器请求时有用。
-// - find:net 参与组网，仅适用 findings 类型
-// - assist:x 寻求上线协助（获取Finder节点，仅使用 findings 类型）
-// - kind:app 获取服务器支持的应用名清单
-// - app:serv 请求NAT探测、打洞协助或获取TCP服务节点
-// - peer:tcp 登记为可直连TCP服务器，后续提供node.Peer（直接node.EncodePeer编码）
+// 因为NAT探测是标准服务，无需类型区分。
+// base:
+// - depots     数据驿站类型
+// - blockchain 区块链节点类型
+// - app        应用节点类型
+// - findings   发现节点类型
+// seek:
+// 客户端向服务器寻求的服务。
+// - find:net   参与组网（仅适用 findings，UDP）
+// - find:help  寻求上线协助（获取 Findings 公网节点，适用 UDP & TCP）
+// - app:kinds  获取服务器支持的应用名清单（UDP & TCP）
+// - app:serv   获取服务器暂存的TCP应用服务节点（TCP）
+// - nat:cone   请求NAT类型探测服务（UDP）
+// - nat:live   请求NAT映射存活期探测服务（UDP）
+// - app:punch  请求UDP打洞协助&信令协调（UDP）
+// - peer:tcp   登记为可直连的TCP服务器（对应 app:serv 目标）
 type Kind struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Base          string                 `protobuf:"bytes,1,opt,name=base,proto3" json:"base,omitempty"` // 基础名称（depots|blockchain|app|findings）
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"` // 具体的服务名称（……）
-	Seek          string                 `protobuf:"bytes,3,opt,name=seek,proto3" json:"seek,omitempty"` // 寻求的服务（find:net|assist:x|kind:app|app:serv|peer:tcp）
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"` // 具体的应用名称（……）
+	Seek          string                 `protobuf:"bytes,3,opt,name=seek,proto3" json:"seek,omitempty"` // 寻求的服务（find:net|find:help|app:kinds|app:serv|...）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -144,66 +153,19 @@ func (x *Kind) GetSeek() string {
 	return ""
 }
 
-// 服务类型名集
-// 服务器返回给应用端的信息（此时seek无效）。
-type ServKinds struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Names         []*Kind                `protobuf:"bytes,1,rep,name=names,proto3" json:"names,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ServKinds) Reset() {
-	*x = ServKinds{}
-	mi := &file_basic_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ServKinds) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ServKinds) ProtoMessage() {}
-
-func (x *ServKinds) ProtoReflect() protoreflect.Message {
-	mi := &file_basic_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ServKinds.ProtoReflect.Descriptor instead.
-func (*ServKinds) Descriptor() ([]byte, []int) {
-	return file_basic_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *ServKinds) GetNames() []*Kind {
-	if x != nil {
-		return x.Names
-	}
-	return nil
-}
-
-// 收益信息
-// 用于公共服务节点获取应用端的捐赠。
-// 其中ID用于群组个体分辨，实际上也可以直接是区块链地址。
+// Stake 服务器收益账户
+// 公共服务节点向应用节点提供的信息，以获取可能有的奖励/捐赠。
 type Stake struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`     // 身份标识
-	Addr          string                 `protobuf:"bytes,2,opt,name=addr,proto3" json:"addr,omitempty"` // 收益地址（区块链）
+	Addr          string                 `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`     // 收益地址（区块链）
+	Member        string                 `protobuf:"bytes,2,opt,name=member,proto3" json:"member,omitempty"` // 服务节点标识（群成员，通常也为区块链地址）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Stake) Reset() {
 	*x = Stake{}
-	mi := &file_basic_proto_msgTypes[3]
+	mi := &file_basic_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -215,7 +177,7 @@ func (x *Stake) String() string {
 func (*Stake) ProtoMessage() {}
 
 func (x *Stake) ProtoReflect() protoreflect.Message {
-	mi := &file_basic_proto_msgTypes[3]
+	mi := &file_basic_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -228,14 +190,7 @@ func (x *Stake) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Stake.ProtoReflect.Descriptor instead.
 func (*Stake) Descriptor() ([]byte, []int) {
-	return file_basic_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *Stake) GetId() string {
-	if x != nil {
-		return x.Id
-	}
-	return ""
+	return file_basic_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Stake) GetAddr() string {
@@ -245,23 +200,41 @@ func (x *Stake) GetAddr() string {
 	return ""
 }
 
-// 节点信息
-// 每一个在线节点都应当有的信息（UDP）。
-// type 中冒号前的部分为基础类型名称，冒号后的 xx 部分为具体应用的名称。
-// SPKI 用于自签名证书的公钥哈希验证。
+func (x *Stake) GetMember() string {
+	if x != nil {
+		return x.Member
+	}
+	return ""
+}
+
+// NodeInfo 节点信息
+// 每一个节点都应有的信息，表达自身所属应用的类型。
+// type:
+// 对应 Kind 中的 base 和 name，中间以冒号（:）分隔。
+// spki:
+// 用于节点间通过自签名证书创建安全连接（SPKI验证）。
+// natt:
+// - 0: Blocked     UDP 阻塞
+// - 1: Pub/FullC   公网或FullC
+// - 2: RC          受限
+// - 3: P-RC        端口受限
+// - 4: Firewalled  UDP 防火墙（可主动打洞）
+// - 5: Sym         对称（不可打洞）
 type NodeInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"` // 节点类型：depots:xx | blockchain:xx | app:xx | findings:xx
-	Addr          string                 `protobuf:"bytes,2,opt,name=addr,proto3" json:"addr,omitempty"` // 地址：IP:Port（NAT映射）
-	Nat           string                 `protobuf:"bytes,3,opt,name=nat,proto3" json:"nat,omitempty"`   // NAT类型：Pub/FullC | RC | P-RC | Sym
-	Spki          []byte                 `protobuf:"bytes,4,opt,name=spki,proto3" json:"spki,omitempty"` // 自签证书的公钥编码哈希（SPKI）
+	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`       // 节点类型：depots:x | blockchain:x | app:x | findings:x
+	Network       string                 `protobuf:"bytes,2,opt,name=network,proto3" json:"network,omitempty"` // 网络类型：tcp | udp
+	Ip            []byte                 `protobuf:"bytes,3,opt,name=ip,proto3" json:"ip,omitempty"`           // IP地址（IPv4/IPv6，公网）
+	Port          int32                  `protobuf:"varint,4,opt,name=port,proto3" json:"port,omitempty"`      // 端口号（NAT 公网映射）
+	Natt          int32                  `protobuf:"varint,6,opt,name=natt,proto3" json:"natt,omitempty"`      // NAT类型：Pub/FullC | RC | ...
+	Spki          []byte                 `protobuf:"bytes,7,opt,name=spki,proto3" json:"spki,omitempty"`       // 证书的公钥编码哈希（SPKI）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NodeInfo) Reset() {
 	*x = NodeInfo{}
-	mi := &file_basic_proto_msgTypes[4]
+	mi := &file_basic_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -273,7 +246,7 @@ func (x *NodeInfo) String() string {
 func (*NodeInfo) ProtoMessage() {}
 
 func (x *NodeInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_basic_proto_msgTypes[4]
+	mi := &file_basic_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -286,7 +259,7 @@ func (x *NodeInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeInfo.ProtoReflect.Descriptor instead.
 func (*NodeInfo) Descriptor() ([]byte, []int) {
-	return file_basic_proto_rawDescGZIP(), []int{4}
+	return file_basic_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *NodeInfo) GetType() string {
@@ -296,18 +269,32 @@ func (x *NodeInfo) GetType() string {
 	return ""
 }
 
-func (x *NodeInfo) GetAddr() string {
+func (x *NodeInfo) GetNetwork() string {
 	if x != nil {
-		return x.Addr
+		return x.Network
 	}
 	return ""
 }
 
-func (x *NodeInfo) GetNat() string {
+func (x *NodeInfo) GetIp() []byte {
 	if x != nil {
-		return x.Nat
+		return x.Ip
 	}
-	return ""
+	return nil
+}
+
+func (x *NodeInfo) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *NodeInfo) GetNatt() int32 {
+	if x != nil {
+		return x.Natt
+	}
+	return 0
 }
 
 func (x *NodeInfo) GetSpki() []byte {
@@ -328,17 +315,17 @@ const file_basic_proto_rawDesc = "" +
 	"\x04Kind\x12\x12\n" +
 	"\x04base\x18\x01 \x01(\tR\x04base\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
-	"\x04seek\x18\x03 \x01(\tR\x04seek\"(\n" +
-	"\tServKinds\x12\x1b\n" +
-	"\x05names\x18\x01 \x03(\v2\x05.KindR\x05names\"+\n" +
-	"\x05Stake\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04addr\x18\x02 \x01(\tR\x04addr\"X\n" +
+	"\x04seek\x18\x03 \x01(\tR\x04seek\"3\n" +
+	"\x05Stake\x12\x12\n" +
+	"\x04addr\x18\x01 \x01(\tR\x04addr\x12\x16\n" +
+	"\x06member\x18\x02 \x01(\tR\x06member\"\x84\x01\n" +
 	"\bNodeInfo\x12\x12\n" +
-	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
-	"\x04addr\x18\x02 \x01(\tR\x04addr\x12\x10\n" +
-	"\x03nat\x18\x03 \x01(\tR\x03nat\x12\x12\n" +
-	"\x04spki\x18\x04 \x01(\fR\x04spkiB\tZ\a../baseb\x06proto3"
+	"\x04type\x18\x01 \x01(\tR\x04type\x12\x18\n" +
+	"\anetwork\x18\x02 \x01(\tR\anetwork\x12\x0e\n" +
+	"\x02ip\x18\x03 \x01(\fR\x02ip\x12\x12\n" +
+	"\x04port\x18\x04 \x01(\x05R\x04port\x12\x12\n" +
+	"\x04natt\x18\x06 \x01(\x05R\x04natt\x12\x12\n" +
+	"\x04spki\x18\a \x01(\fR\x04spkiB\tZ\a../baseb\x06proto3"
 
 var (
 	file_basic_proto_rawDescOnce sync.Once
@@ -352,21 +339,19 @@ func file_basic_proto_rawDescGZIP() []byte {
 	return file_basic_proto_rawDescData
 }
 
-var file_basic_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_basic_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_basic_proto_goTypes = []any{
-	(*Proto)(nil),     // 0: Proto
-	(*Kind)(nil),      // 1: Kind
-	(*ServKinds)(nil), // 2: ServKinds
-	(*Stake)(nil),     // 3: Stake
-	(*NodeInfo)(nil),  // 4: NodeInfo
+	(*Proto)(nil),    // 0: Proto
+	(*Kind)(nil),     // 1: Kind
+	(*Stake)(nil),    // 2: Stake
+	(*NodeInfo)(nil), // 3: NodeInfo
 }
 var file_basic_proto_depIdxs = []int32{
-	1, // 0: ServKinds.names:type_name -> Kind
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	0, // [0:0] is the sub-list for method output_type
+	0, // [0:0] is the sub-list for method input_type
+	0, // [0:0] is the sub-list for extension type_name
+	0, // [0:0] is the sub-list for extension extendee
+	0, // [0:0] is the sub-list for field type_name
 }
 
 func init() { file_basic_proto_init() }
@@ -380,7 +365,7 @@ func file_basic_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_basic_proto_rawDesc), len(file_basic_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

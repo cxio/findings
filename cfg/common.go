@@ -17,20 +17,22 @@ import (
 func Base() (*Config, error) {
 	// 默认配置值
 	config := &Config{
-		UserID:         UserID,
-		LogDir:         "", // 空值表示使用系统缓存目录
-		ServerPort:     ServerPort,
-		RemotePort:     RemotePort,
-		Shortlist:      ListFindings,
-		ConnApps:       MaxApps,
-		PeersHelp:      PeersHelp,
-		STUNPeerAmount: STUNPeerAmount,
-		PeerFindRange:  PeerFindRange,
-		BufferSize:     BufferSize,
-		STUNLiving:     STUNLiving,
-		UDPListen:      UDPListen,
-		UDPLiving:      UDPLiving,
-		STUNClient:     STUNClient,
+		UserID:      UserID,
+		LogRoot:     "",
+		ServerUport: ServerUport,
+		ServerTport: ServerTport,
+		RemoteUport: RemoteUport,
+		RemoteTport: RemoteTport,
+		Shortlist:   Shortlist,
+		PunchXpool:  PunchXpool,
+		ShareXpool:  ShareXpool,
+		PeersHelp:   PeersHelp,
+		PeersPunch:  PeersPunch,
+		PeersRange:  PeersRange,
+		STUNTest:    STUNTest,
+		NATListen:   NATListen,
+		NATLiving:   NATLiving,
+		ClientOnly:  ClientOnly,
 	}
 	// 当前用户主目录
 	usr, err := os.UserHomeDir()
@@ -137,7 +139,7 @@ func Stakes() (map[string]string, error) {
 }
 
 // CreateLoger 创建一个日志记录器。
-// 返回的 os.File 主要用于外部自行关闭操作。
+// 返回的 os.File 用于外部执行关闭清理操作。
 // @path 存储路径，可选
 // @filename 日志文件名
 // @prefix 日志前缀字符串
