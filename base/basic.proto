@@ -43,7 +43,7 @@ message Stake {
 // type:
 // 对应 Kind 中的 base 和 name，中间以冒号（:）分隔。
 // spki:
-// 用于节点间通过自签名证书创建安全连接（SPKI验证）。
+// 用于节点间通过自签名证书创建安全连接（SPKI指纹验证）。
 // natt:
 // - 0: Blocked     UDP 阻塞
 // - 1: Pub/FullC   公网或FullC
@@ -57,7 +57,7 @@ message NodeInfo {
     bytes ip = 3;       // IP地址（IPv4/IPv6，公网）
     int32 port = 4;     // 端口号（NAT 公网映射）
     int32 natt = 6;     // NAT类型：Pub/FullC | RC | ...
-    bytes spki = 7;     // 证书的公钥编码哈希（SPKI）
+    bytes spki = 7;     // 证书的公钥编码哈希（SPKI指纹）
 }
 
 option go_package = "../base";

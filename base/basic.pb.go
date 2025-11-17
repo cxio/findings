@@ -7,11 +7,12 @@
 package base
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -212,7 +213,7 @@ func (x *Stake) GetMember() string {
 // type:
 // 对应 Kind 中的 base 和 name，中间以冒号（:）分隔。
 // spki:
-// 用于节点间通过自签名证书创建安全连接（SPKI验证）。
+// 用于节点间通过自签名证书创建安全连接（SPKI指纹验证）。
 // natt:
 // - 0: Blocked     UDP 阻塞
 // - 1: Pub/FullC   公网或FullC
